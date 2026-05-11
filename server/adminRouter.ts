@@ -322,6 +322,7 @@ export const adminRouter = createRouter({
         where: eq(missedRecords.id, input.id),
       });
       if (!record) return { success: false };
+      if (record.paid === input.paid) return { success: true };
 
       await db
         .update(missedRecords)

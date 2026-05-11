@@ -19,6 +19,7 @@ import {
   Users,
   Wallet,
   X,
+  XCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -31,9 +32,9 @@ type AdminTab = "participants" | "donations" | "money" | "settings";
 type ParticipantFormData = {
   id?: number;
   name: string;
-  missedCount: number;
-  paidAmount: number;
-  unpaidAmount: number;
+  missedCount?: number;
+  paidAmount?: number;
+  unpaidAmount?: number;
   image: string;
 };
 
@@ -59,9 +60,6 @@ type DonationFormData = {
 
 const emptyParticipant: ParticipantFormData = {
   name: "",
-  missedCount: 0,
-  paidAmount: 0,
-  unpaidAmount: 0,
   image: "",
 };
 
@@ -101,6 +99,8 @@ export default function AdminPage() {
   const [participantForm, setParticipantForm] = useState<ParticipantFormData>(emptyParticipant);
   const [participantOpen, setParticipantOpen] = useState(false);
   const [participantSaving, setParticipantSaving] = useState(false);
+  const [absenceDate, setAbsenceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [absencePaid, setAbsencePaid] = useState(true);
   const [donationOpen, setDonationOpen] = useState(false);
   const [donationStep, setDonationStep] = useState(1);
   const [donationForm, setDonationForm] = useState<DonationFormData>(emptyDonation);
@@ -112,6 +112,11 @@ export default function AdminPage() {
   const donationsQuery = trpc.admin.listDonations.useQuery(undefined, { enabled: isAdmin });
   const fundSummaryQuery = trpc.admin.fundSummary.useQuery(undefined, { enabled: isAdmin });
   const ledgerQuery = trpc.moneyFlow.adminLedger.useQuery(undefined, { enabled: isAdmin });
+  const fineAmountQuery = trpc.admin.getFineAmount.useQuery(undefined, { enabled: isAdmin });
+  const participantDetailsQuery = trpc.participant.byId.useQuery(
+    { id: participantForm.id ?? 0 },
+    { enabled: isAdmin && participantOpen && Boolean(participantForm.id) },
+  );
   const adminAuthError = [
     participantsQuery.error,
     donationsQuery.error,
@@ -156,6 +161,41 @@ export default function AdminPage() {
     },
   });
 
+  const addParticipant = trpc.admin.addParticipant.useMutation({
+    onSuccess: () => {
+      toast.success("تم إضافة المشارك");
+      setParticipantOpen(false);
+      setParticipantForm(emptyParticipant);
+      refreshAll();
+    },
+    onError: () => toast.error("تعذر إضافة المشارك"),
+  });
+
+  const updateParticipant = trpc.admin.updateParticipant.useMutation({
+    onSuccess: () => {
+      toast.success("تم تحديث بيانات المشارك");
+      refreshAll();
+    },
+    onError: () => toast.error("تعذر تحديث المشارك"),
+  });
+
+  const addMissedRecord = trpc.admin.addMissedRecord.useMutation({
+    onSuccess: () => {
+      toast.success(absencePaid ? "تم تسجيل الغياب كمدفوع" : "تم تسجيل الغياب كمستحق");
+      refreshAll();
+      setAbsenceDate(new Date().toISOString().slice(0, 10));
+    },
+    onError: () => toast.error("تعذر إضافة الغياب"),
+  });
+
+  const updateMissedRecord = trpc.admin.updateMissedRecord.useMutation({
+    onSuccess: () => {
+      toast.success("تم تسديد الغياب");
+      refreshAll();
+    },
+    onError: () => toast.error("تعذر تسديد الغياب"),
+  });
+
   const tabs = [
     { id: "participants" as const, label: "المشاركون", icon: Users },
     { id: "donations" as const, label: "التبرعات", icon: HandHeart },
@@ -166,6 +206,9 @@ export default function AdminPage() {
   const ledgerCycles = ledgerQuery.data?.cycles ?? [];
   const activeCycle = ledgerCycles.find((cycle) => cycle.status === "active") ?? ledgerCycles[0];
   const currentBalance = fundSummaryQuery.data?.balance ?? activeCycle?.balance ?? 0;
+  const fineAmount = fineAmountQuery.data?.amount ?? 10;
+  const participantDetails = participantDetailsQuery.data;
+  const participantSnapshot = participantDetails ?? participantForm;
   const balanceAfterDonation = currentBalance - donationForm.amount;
   const closesCycle = donationForm.amount > 0 && donationForm.amount === currentBalance;
 
@@ -185,6 +228,7 @@ export default function AdminPage() {
     utils.moneyFlow.adminLedger.invalidate();
     utils.moneyFlow.publicLedger.invalidate();
     utils.donation.list.invalidate();
+    utils.participant.byId.invalidate();
   }
 
   async function loginAdmin(event: React.FormEvent) {
@@ -216,15 +260,15 @@ export default function AdminPage() {
     setParticipantForm({
       id: participant.id,
       name: participant.name,
-      missedCount: participant.missedCount,
-      paidAmount: participant.paidAmount,
-      unpaidAmount: participant.unpaidAmount,
       image: participant.image || "",
     });
+    setAbsenceDate(new Date().toISOString().slice(0, 10));
+    setAbsencePaid(true);
     setParticipantOpen(true);
   }
 
   async function saveParticipant(event: React.FormEvent) {
+    return saveParticipantBasics(event);
     event.preventDefault();
     if (!participantForm.name.trim()) {
       toast.error("اسم المشارك مطلوب");
@@ -257,6 +301,46 @@ export default function AdminPage() {
       window.clearTimeout(timeout);
       setParticipantSaving(false);
     }
+  }
+
+  async function saveParticipantBasics(event: React.FormEvent) {
+    event.preventDefault();
+    if (!participantForm.name.trim()) {
+      toast.error("اسم المشارك مطلوب");
+      return;
+    }
+
+    setParticipantSaving(true);
+    try {
+      if (participantForm.id) {
+        await updateParticipant.mutateAsync({
+          id: participantForm.id,
+          name: participantForm.name.trim(),
+          image: participantForm.image.trim(),
+        });
+      } else {
+        await addParticipant.mutateAsync({
+          name: participantForm.name.trim(),
+          image: participantForm.image.trim() || undefined,
+        });
+      }
+    } finally {
+      setParticipantSaving(false);
+    }
+  }
+
+  function addParticipantAbsence() {
+    if (!participantForm.id) return;
+    addMissedRecord.mutate({
+      participantId: participantForm.id,
+      date: absenceDate,
+      amount: fineAmount,
+      paid: absencePaid,
+    });
+  }
+
+  function payMissedRecord(id: number) {
+    updateMissedRecord.mutate({ id, paid: true });
   }
 
   async function deleteParticipant(id: number, name: string) {
@@ -629,16 +713,93 @@ export default function AdminPage() {
             <form onSubmit={saveParticipant} className="space-y-4">
               <TextInput label="الاسم" value={participantForm.name} onChange={(name) => setParticipantForm({ ...participantForm, name })} />
               <TextInput label="رابط الصورة" value={participantForm.image} onChange={(image) => setParticipantForm({ ...participantForm, image })} />
-              <div className="grid grid-cols-3 gap-3">
-                <NumberInput label="الغيابات" value={participantForm.missedCount} onChange={(missedCount) => setParticipantForm({ ...participantForm, missedCount })} />
-                <NumberInput label="المدفوع" value={participantForm.paidAmount} onChange={(paidAmount) => setParticipantForm({ ...participantForm, paidAmount })} />
-                <NumberInput label="المستحق" value={participantForm.unpaidAmount} onChange={(unpaidAmount) => setParticipantForm({ ...participantForm, unpaidAmount })} />
-              </div>
               <button disabled={participantSaving} className="w-full rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] flex items-center justify-center gap-2">
                 <Save className="w-4 h-4" />
                 {participantSaving ? "جاري الحفظ..." : "حفظ"}
               </button>
             </form>
+
+            {participantForm.id && (
+              <div className="mt-6 space-y-5">
+                <div className="grid grid-cols-3 gap-3">
+                  <SummaryTile label="الغيابات" value={String(participantSnapshot.missedCount ?? 0)} icon={XCircle} tone="red" />
+                  <SummaryTile label="المدفوع" value={formatMoney(participantSnapshot.paidAmount)} icon={Coins} tone="green" />
+                  <SummaryTile label="المستحق" value={formatMoney(participantSnapshot.unpaidAmount)} icon={AlertCircle} tone="amber" />
+                </div>
+
+                <div className="rounded-2xl bg-white/5 p-4">
+                  <div className="mb-4">
+                    <h3 className="font-bold">إضافة يوم غياب</h3>
+                    <p className="text-xs text-muted-foreground">قيمة الغياب الحالية: {formatMoney(fineAmount)}</p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                    <TextInput label="تاريخ الغياب" type="date" value={absenceDate} onChange={setAbsenceDate} />
+                    <div>
+                      <span className="mb-1.5 block text-sm text-muted-foreground">حالة الدفع</span>
+                      <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border/50">
+                        <button
+                          type="button"
+                          onClick={() => setAbsencePaid(true)}
+                          className={`px-4 py-3 text-sm font-bold transition ${absencePaid ? "bg-emerald-500/20 text-emerald-200" : "bg-white/5 text-muted-foreground"}`}
+                        >
+                          مدفوع
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAbsencePaid(false)}
+                          className={`px-4 py-3 text-sm font-bold transition ${!absencePaid ? "bg-amber-500/20 text-amber-200" : "bg-white/5 text-muted-foreground"}`}
+                        >
+                          غير مدفوع
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addParticipantAbsence}
+                    disabled={addMissedRecord.isPending || !absenceDate}
+                    className="mt-4 w-full rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] disabled:opacity-50"
+                  >
+                    {addMissedRecord.isPending ? "جاري إضافة الغياب..." : "إضافة الغياب"}
+                  </button>
+                </div>
+
+                <div className="rounded-2xl bg-white/5 p-4">
+                  <h3 className="mb-3 font-bold">سجل الغيابات</h3>
+                  {participantDetailsQuery.isLoading ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">جاري تحميل السجل...</p>
+                  ) : !participantDetails?.missedRecords.length ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">لا توجد غيابات مسجلة</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {participantDetails.missedRecords.map((record) => (
+                        <div key={record.id} className="flex flex-col gap-3 rounded-xl bg-background/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="font-medium">{record.date}</div>
+                            <div className="text-xs text-muted-foreground">{formatMoney(record.amount)}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${record.paid ? "bg-emerald-500/15 text-emerald-200" : "bg-amber-500/15 text-amber-200"}`}>
+                              {record.paid ? "مدفوع" : "مستحق"}
+                            </span>
+                            {!record.paid && (
+                              <button
+                                type="button"
+                                onClick={() => payMissedRecord(record.id)}
+                                disabled={updateMissedRecord.isPending}
+                                className="rounded-lg bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                              >
+                                تسديد
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </Modal>
         )}
 
@@ -762,6 +923,34 @@ function StatCard({ icon: Icon, label, value }: { icon: typeof Coins; label: str
       <Icon className="w-4 h-4 text-amber-300 mb-2" />
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="font-bold">{value}</div>
+    </div>
+  );
+}
+
+function SummaryTile({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: typeof Coins;
+  label: string;
+  value: string;
+  tone: "amber" | "green" | "red";
+}) {
+  const toneClass = {
+    amber: "text-amber-200 bg-amber-500/10",
+    green: "text-emerald-200 bg-emerald-500/10",
+    red: "text-red-200 bg-red-500/10",
+  }[tone];
+
+  return (
+    <div className="rounded-xl bg-white/5 p-3">
+      <div className={`mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg ${toneClass}`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-lg font-bold">{value}</div>
     </div>
   );
 }

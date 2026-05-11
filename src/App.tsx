@@ -5,6 +5,7 @@ import AdminPage from './pages/AdminPage'
 import DonationsPage from './pages/DonationsPage'
 import DonationDetailsPage from './pages/DonationDetailsPage'
 import MoneyFlowPage from './pages/MoneyFlowPage'
+import CharityCirclePage from './pages/CharityCirclePage'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/donations" element={<DonationsPage />} />
         <Route path="/donations/:id" element={<DonationDetailsPage />} />
         <Route path="/money-flow" element={<MoneyFlowPage />} />
+        <Route path="/charity-circle" element={<CharityCirclePage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin-secret-dashboard" element={<AdminPage />} />
         <Route path="*" element={<Home />} />

@@ -6,6 +6,7 @@ import {
   text,
   timestamp,
   boolean,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const participants = pgTable("participants", {
@@ -116,3 +117,57 @@ export const moneyFlow = pgTable("money_flow", {
 
 export type MoneyFlow = typeof moneyFlow.$inferSelect;
 export type InsertMoneyFlow = typeof moneyFlow.$inferInsert;
+
+export const charityMonths = pgTable(
+  "charity_months",
+  {
+    id: serial("id").primaryKey(),
+    hijriYear: integer("hijri_year").notNull(),
+    hijriMonth: integer("hijri_month").notNull(),
+    hijriMonthName: varchar("hijri_month_name", { length: 80 }).notNull(),
+    rotationParticipantId: integer("rotation_participant_id").references(() => participants.id, {
+      onDelete: "set null",
+    }),
+    status: varchar("status", { length: 20 }).notNull().default("open"),
+    contributionAmount: integer("contribution_amount").notNull().default(50),
+    expectedAmount: integer("expected_amount").notNull().default(500),
+    moneyFlowId: integer("money_flow_id").references(() => moneyFlow.id, {
+      onDelete: "set null",
+    }),
+    openedAt: timestamp("opened_at").defaultNow().notNull(),
+    closedAt: timestamp("closed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    monthUnique: uniqueIndex("charity_months_hijri_year_month_idx").on(table.hijriYear, table.hijriMonth),
+  }),
+);
+
+export type CharityMonth = typeof charityMonths.$inferSelect;
+export type InsertCharityMonth = typeof charityMonths.$inferInsert;
+
+export const charityMonthPayments = pgTable(
+  "charity_month_payments",
+  {
+    id: serial("id").primaryKey(),
+    monthId: integer("month_id")
+      .notNull()
+      .references(() => charityMonths.id, { onDelete: "cascade" }),
+    participantId: integer("participant_id")
+      .notNull()
+      .references(() => participants.id, { onDelete: "restrict" }),
+    amount: integer("amount").notNull().default(50),
+    paid: boolean("paid").notNull().default(false),
+    paidAt: timestamp("paid_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    participantUnique: uniqueIndex("charity_month_payments_month_participant_idx").on(
+      table.monthId,
+      table.participantId,
+    ),
+  }),
+);
+
+export type CharityMonthPayment = typeof charityMonthPayments.$inferSelect;
+export type InsertCharityMonthPayment = typeof charityMonthPayments.$inferInsert;

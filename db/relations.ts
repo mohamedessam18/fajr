@@ -3,6 +3,8 @@ import {
   donationMedia,
   donations,
   fundCycles,
+  charityMonthPayments,
+  charityMonths,
   missedRecords,
   moneyFlow,
   participants,
@@ -11,6 +13,8 @@ import {
 export const participantsRelations = relations(participants, ({ many }) => ({
   missedRecords: many(missedRecords),
   moneyFlow: many(moneyFlow),
+  charityPayments: many(charityMonthPayments),
+  charityTurns: many(charityMonths),
 }));
 
 export const missedRecordsRelations = relations(missedRecords, ({ one }) => ({
@@ -52,6 +56,29 @@ export const moneyFlowRelations = relations(moneyFlow, ({ one }) => ({
   }),
   participant: one(participants, {
     fields: [moneyFlow.participantId],
+    references: [participants.id],
+  }),
+}));
+
+export const charityMonthsRelations = relations(charityMonths, ({ one, many }) => ({
+  rotationParticipant: one(participants, {
+    fields: [charityMonths.rotationParticipantId],
+    references: [participants.id],
+  }),
+  moneyFlow: one(moneyFlow, {
+    fields: [charityMonths.moneyFlowId],
+    references: [moneyFlow.id],
+  }),
+  payments: many(charityMonthPayments),
+}));
+
+export const charityMonthPaymentsRelations = relations(charityMonthPayments, ({ one }) => ({
+  month: one(charityMonths, {
+    fields: [charityMonthPayments.monthId],
+    references: [charityMonths.id],
+  }),
+  participant: one(participants, {
+    fields: [charityMonthPayments.participantId],
     references: [participants.id],
   }),
 }));

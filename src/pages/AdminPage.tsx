@@ -3,8 +3,10 @@ import { useNavigate } from "react-router";
 import {
   AlertCircle,
   CheckCircle2,
+  CircleDollarSign,
   Coins,
   HandHeart,
+  HeartHandshake,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -27,7 +29,7 @@ import { trpc } from "@/providers/trpc";
 import { useAdmin } from "@/hooks/useAdmin";
 import { formatDate, formatMoney } from "@/lib/format";
 
-type AdminTab = "participants" | "donations" | "money" | "settings";
+type AdminTab = "participants" | "donations" | "charity" | "money" | "settings";
 
 type ParticipantFormData = {
   id?: number;
@@ -113,6 +115,7 @@ export default function AdminPage() {
   const donationsQuery = trpc.admin.listDonations.useQuery(undefined, { enabled: isAdmin });
   const fundSummaryQuery = trpc.admin.fundSummary.useQuery(undefined, { enabled: isAdmin });
   const ledgerQuery = trpc.moneyFlow.adminLedger.useQuery(undefined, { enabled: isAdmin });
+  const charityQuery = trpc.charity.adminSummary.useQuery(undefined, { enabled: isAdmin });
   const fineAmountQuery = trpc.admin.getFineAmount.useQuery(undefined, { enabled: isAdmin });
   const participantDetailsQuery = trpc.participant.byId.useQuery(
     { id: participantForm.id ?? 0 },
@@ -122,6 +125,7 @@ export default function AdminPage() {
     donationsQuery.error,
     fundSummaryQuery.error,
     ledgerQuery.error,
+    charityQuery.error,
   ].some((error) => error?.data?.code === "UNAUTHORIZED");
 
   useEffect(() => {
@@ -196,9 +200,22 @@ export default function AdminPage() {
     onError: () => toast.error("تعذر تسديد الغياب"),
   });
 
+  const setCharityPayment = trpc.charity.setPayment.useMutation({
+    onSuccess: (result) => {
+      if (!result.success) {
+        toast.error(result.error === "MONTH_CLOSED" ? "الشهر مقفول ولا يمكن تعديله" : "تعذر تحديث دفعة الجمعية");
+        return;
+      }
+      toast.success(result.closed ? "اكتملت الجمعية وتم إضافة 500 جنيه للرصيد" : "تم تحديث دفعة الجمعية");
+      refreshAll();
+    },
+    onError: () => toast.error("تعذر تحديث دفعة الجمعية"),
+  });
+
   const tabs = [
     { id: "participants" as const, label: "المشاركون", icon: Users },
     { id: "donations" as const, label: "التبرعات", icon: HandHeart },
+    { id: "charity" as const, label: "الجمعية الخيرية", icon: HeartHandshake },
     { id: "money" as const, label: "سجل الفلوس", icon: Wallet },
     { id: "settings" as const, label: "الإعدادات", icon: Settings },
   ];
@@ -211,6 +228,13 @@ export default function AdminPage() {
   const participantSnapshot = participantDetails ?? participantForm;
   const balanceAfterDonation = currentBalance - donationForm.amount;
   const closesCycle = donationForm.amount > 0 && donationForm.amount === currentBalance;
+  const charityData = charityQuery.data;
+  const charityActive = charityData?.active;
+  const charityPaidCount = charityActive?.payments.filter((payment) => payment.paid).length ?? 0;
+  const charityProgress = charityData?.memberCount
+    ? Math.round((charityPaidCount / charityData.memberCount) * 100)
+    : 0;
+  const charityCompletedAmount = charityPaidCount * (charityData?.contributionAmount ?? 50);
 
   const donationCanContinue = useMemo(() => {
     if (donationStep === 1) {
@@ -227,6 +251,8 @@ export default function AdminPage() {
     utils.admin.fundSummary.invalidate();
     utils.moneyFlow.adminLedger.invalidate();
     utils.moneyFlow.publicLedger.invalidate();
+    utils.charity.adminSummary.invalidate();
+    utils.charity.publicSummary.invalidate();
     utils.donation.list.invalidate();
     utils.participant.byId.invalidate();
   }
@@ -688,6 +714,171 @@ export default function AdminPage() {
                   </div>
                 ))}
               </div>
+            </section>
+          )}
+
+          {activeTab === "charity" && (
+            <section className="space-y-5">
+              {charityQuery.isLoading ? (
+                <div className="glass-strong rounded-2xl p-8 text-center text-muted-foreground">
+                  جاري تحميل الجمعية الخيرية...
+                </div>
+              ) : charityQuery.data?.shortage ? (
+                <div className="glass-strong rounded-2xl p-8">
+                  <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-200">
+                    <Users className="h-6 w-6" />
+                  </div>
+                  <h2 className="mb-2 text-xl font-bold">الجمعية تحتاج 10 مشاركين</h2>
+                  <p className="text-muted-foreground">
+                    المتبقي لإطلاق شهر الجمعية: {charityQuery.data.shortage} مشارك. أضف المشاركين أولاً من تبويب المشاركين.
+                  </p>
+                </div>
+              ) : charityActive ? (
+                <>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <StatCard
+                      icon={HeartHandshake}
+                      label="الشهر"
+                      value={`${charityActive.hijriMonthName} ${charityActive.hijriYear}`}
+                    />
+                    <StatCard
+                      icon={User}
+                      label="صاحب الدور"
+                      value={charityActive.rotationParticipant?.name ?? "-"}
+                    />
+                    <StatCard
+                      icon={CircleDollarSign}
+                      label="المكتمل"
+                      value={formatMoney(charityCompletedAmount)}
+                    />
+                    <StatCard icon={Users} label="الدافعين" value={`${charityPaidCount} / ${charityData.memberCount}`} />
+                  </div>
+
+                  {charityActive.status === "closed" && (
+                    <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-5">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div className="flex gap-3">
+                          <CheckCircle2 className="mt-1 h-6 w-6 text-emerald-200" />
+                          <div>
+                            <h2 className="font-bold text-emerald-100">تم اكتمال جمعية الشهر</h2>
+                            <p className="text-sm text-emerald-100/80">
+                              تم إضافة {formatMoney(charityActive.expectedAmount)} للرصيد باسم الجمعية من{" "}
+                              {charityActive.rotationParticipant?.name ?? "صاحب الدور"}.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab("money")}
+                          className="rounded-xl bg-emerald-500/15 px-4 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-500/25"
+                        >
+                          فتح سجل الفلوس
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="glass-strong rounded-2xl overflow-hidden">
+                    <div className="border-b border-border/50 p-5">
+                      <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <h2 className="font-bold">دفعات الشهر</h2>
+                          <p className="text-sm text-muted-foreground">
+                            لا يتم إضافة أي دخل للرصيد إلا بعد اكتمال دفع العشرة.
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-bold ${
+                            charityActive.status === "closed"
+                              ? "bg-emerald-500/15 text-emerald-200"
+                              : "bg-amber-500/15 text-amber-200"
+                          }`}
+                        >
+                          {charityActive.status === "closed" ? "مكتمل" : "مفتوح"}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                        <div className="h-full rounded-full gold-gradient" style={{ width: `${charityProgress}%` }} />
+                      </div>
+                    </div>
+                    <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-5">
+                      {charityActive.payments.map((payment) => (
+                        <div key={payment.id} className="rounded-2xl bg-white/5 p-4">
+                          <div className="mb-4 flex items-center gap-3">
+                            <div className="h-12 w-12 overflow-hidden rounded-full bg-muted/30">
+                              {payment.participant.image ? (
+                                <img src={payment.participant.image} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-sm font-bold">
+                                  {payment.participant.name.slice(0, 1)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate font-bold">{payment.participant.name}</div>
+                              <div className="text-xs text-muted-foreground">{formatMoney(payment.amount)}</div>
+                            </div>
+                          </div>
+                          <div className="mb-3">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                                payment.paid ? "bg-emerald-500/15 text-emerald-200" : "bg-amber-500/15 text-amber-200"
+                              }`}
+                            >
+                              {payment.paid ? "مدفوع" : "لم يدفع"}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={charityActive.status === "closed" || setCharityPayment.isPending}
+                            onClick={() =>
+                              setCharityPayment.mutate({
+                                monthId: charityActive.id,
+                                participantId: payment.participantId,
+                                paid: !payment.paid,
+                              })
+                            }
+                            className={`w-full rounded-xl px-3 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                              payment.paid
+                                ? "bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                                : "gold-gradient text-[#0a0e1a]"
+                            }`}
+                          >
+                            {payment.paid ? "إلغاء الدفع" : "تسجيل دفع 50"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="glass-strong rounded-2xl p-5">
+                    <h2 className="mb-4 font-bold">سجل الجمعية</h2>
+                    {!charityData.history.length ? (
+                      <p className="py-4 text-center text-sm text-muted-foreground">لا توجد شهور مكتملة بعد.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {charityData.history.map((month) => (
+                          <div key={month.id} className="rounded-xl bg-white/5 p-4">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <div className="font-bold">
+                                  {month.hijriMonthName} {month.hijriYear}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  الجمعية من {month.rotationParticipant?.name ?? "صاحب الدور"}
+                                </div>
+                              </div>
+                              <span className="text-sm text-muted-foreground">
+                                {month.closedAt ? formatDate(month.closedAt) : "-"}
+                              </span>
+                              <span className="font-bold text-emerald-300">{formatMoney(month.expectedAmount)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : null}
             </section>
           )}
 

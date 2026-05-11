@@ -39,6 +39,7 @@ export default function Navbar() {
     { label: "الإحصائيات", action: () => scrollToSection("stats") },
     { label: "المشاركون", action: () => scrollToSection("participants") },
     { label: "التبرعات", action: () => navigate("/donations") },
+    { label: "الجمعية الخيرية", action: () => navigate("/charity-circle") },
     { label: "سجل الفلوس", action: () => navigate("/money-flow") },
   ];
 

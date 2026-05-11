@@ -22,6 +22,13 @@
       "when": 1778519000000,
       "tag": "0002_donations_money_flow",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778544000000,
+      "tag": "0003_charity_circle",
+      "breakpoints": true
     }
   ]
 }

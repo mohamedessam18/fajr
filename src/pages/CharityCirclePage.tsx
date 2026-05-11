@@ -9,6 +9,7 @@ export default function CharityCirclePage() {
   const paidCount = active?.payments.filter((payment) => payment.paid).length ?? 0;
   const progress = data?.memberCount ? Math.round((paidCount / data.memberCount) * 100) : 0;
   const completedAmount = paidCount * (data?.contributionAmount ?? 50);
+  const notStarted = Boolean(data?.notStarted);
 
   return (
     <div className="min-h-screen" dir="rtl">
@@ -41,8 +42,13 @@ export default function CharityCirclePage() {
                       <span className="rounded-full bg-amber-500/15 px-3 py-1 font-bold text-amber-200">
                         {active.hijriMonthName} {active.hijriYear}
                       </span>
-                      <span>{active.status === "closed" ? "مكتمل" : "الشهر الحالي"}</span>
+                      <span>{notStarted ? "يبدأ يوم الاثنين" : active.status === "closed" ? "مكتمل" : "الشهر الحالي"}</span>
                     </div>
+                    {notStarted && (
+                      <div className="mb-4 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                        تبدأ الجمعية من شهر ذو الحجة يوم الاثنين {data?.startsAt ? formatDate(data.startsAt) : ""}.
+                      </div>
+                    )}
                     <h2 className="mb-4 text-2xl font-extrabold md:text-4xl">
                       الدور على {active.rotationParticipant?.name ?? "صاحب الدور"}
                     </h2>

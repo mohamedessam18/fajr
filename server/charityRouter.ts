@@ -12,6 +12,15 @@ import { ensureSeed } from "./participantRouter.js";
 import { getDb } from "./queries/connection.js";
 
 const CONTRIBUTION_AMOUNT = 50;
+const CHARITY_LAUNCH_DATE = new Date("2026-05-18T00:00:00+03:00");
+
+function isBeforeLaunchDate(date = new Date()) {
+  return date.getTime() < CHARITY_LAUNCH_DATE.getTime();
+}
+
+function getEffectiveHijriParts(date = new Date()) {
+  return getCurrentHijriParts(isBeforeLaunchDate(date) ? CHARITY_LAUNCH_DATE : date);
+}
 
 async function getCircleParticipants() {
   const db = getDb();
@@ -66,11 +75,33 @@ async function ensureActiveCharityMonth() {
     orderBy: desc(charityMonths.createdAt),
   });
   if (openMonth) {
+    if (isBeforeLaunchDate()) {
+      const launchHijri = getEffectiveHijriParts();
+      if (openMonth.hijriYear !== launchHijri.year || openMonth.hijriMonth !== launchHijri.month) {
+        await db
+          .update(charityMonths)
+          .set({
+            hijriYear: launchHijri.year,
+            hijriMonth: launchHijri.month,
+            hijriMonthName: launchHijri.monthName,
+            openedAt: CHARITY_LAUNCH_DATE,
+          })
+          .where(eq(charityMonths.id, openMonth.id));
+
+        await db
+          .update(charityMonthPayments)
+          .set({ paid: false, paidAt: null })
+          .where(eq(charityMonthPayments.monthId, openMonth.id));
+      }
+    }
     await syncOpenMonthParticipants(openMonth.id);
-    return openMonth;
+    return db.query.charityMonths.findFirst({
+      where: eq(charityMonths.id, openMonth.id),
+      orderBy: desc(charityMonths.createdAt),
+    });
   }
 
-  const hijri = getCurrentHijriParts();
+  const hijri = getEffectiveHijriParts();
   const currentMonth = await db.query.charityMonths.findFirst({
     where: and(eq(charityMonths.hijriYear, hijri.year), eq(charityMonths.hijriMonth, hijri.month)),
   });
@@ -146,6 +177,8 @@ async function getCharityPayload() {
     memberCount: circleParticipants.length,
     contributionAmount: CONTRIBUTION_AMOUNT,
     expectedAmount: circleParticipants.length * CONTRIBUTION_AMOUNT,
+    startsAt: CHARITY_LAUNCH_DATE,
+    notStarted: isBeforeLaunchDate(),
     active,
     history,
   };
@@ -199,6 +232,7 @@ export const charityRouter = createRouter({
         where: eq(charityMonths.id, input.monthId),
       });
       if (!month) return { success: false, error: "NOT_FOUND" as const };
+      if (isBeforeLaunchDate()) return { success: false, error: "NOT_STARTED" as const };
       if (month.status !== "open") return { success: false, error: "MONTH_CLOSED" as const };
 
       const payment = await db.query.charityMonthPayments.findFirst({

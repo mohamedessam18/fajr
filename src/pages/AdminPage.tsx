@@ -203,7 +203,11 @@ export default function AdminPage() {
   const setCharityPayment = trpc.charity.setPayment.useMutation({
     onSuccess: (result) => {
       if (!result.success) {
-        toast.error(result.error === "MONTH_CLOSED" ? "الشهر مقفول ولا يمكن تعديله" : "تعذر تحديث دفعة الجمعية");
+        if (result.error === "NOT_STARTED") {
+          toast.error("الجمعية ستبدأ من شهر ذو الحجة يوم الاثنين");
+        } else {
+          toast.error(result.error === "MONTH_CLOSED" ? "الشهر مقفول ولا يمكن تعديله" : "تعذر تحديث دفعة الجمعية");
+        }
         return;
       }
       toast.success(result.closed ? "اكتملت الجمعية وتم إضافة 500 جنيه للرصيد" : "تم تحديث دفعة الجمعية");
@@ -235,6 +239,7 @@ export default function AdminPage() {
     ? Math.round((charityPaidCount / charityData.memberCount) * 100)
     : 0;
   const charityCompletedAmount = charityPaidCount * (charityData?.contributionAmount ?? 50);
+  const charityNotStarted = Boolean(charityData?.notStarted);
 
   const donationCanContinue = useMemo(() => {
     if (donationStep === 1) {
@@ -777,6 +782,20 @@ export default function AdminPage() {
                     </div>
                   )}
 
+                  {charityNotStarted && (
+                    <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-5">
+                      <div className="flex gap-3">
+                        <AlertCircle className="mt-1 h-6 w-6 text-amber-200" />
+                        <div>
+                          <h2 className="font-bold text-amber-100">الجمعية تبدأ من شهر ذو الحجة</h2>
+                          <p className="text-sm text-amber-100/80">
+                            الشهر الحالي جاهز للعرض، لكن تسجيل الدفعات سيبدأ يوم الاثنين {charityData.startsAt ? formatDate(charityData.startsAt) : ""}.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="glass-strong rounded-2xl overflow-hidden">
                     <div className="border-b border-border/50 p-5">
                       <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -829,7 +848,7 @@ export default function AdminPage() {
                           </div>
                           <button
                             type="button"
-                            disabled={charityActive.status === "closed" || setCharityPayment.isPending}
+                            disabled={charityNotStarted || charityActive.status === "closed" || setCharityPayment.isPending}
                             onClick={() =>
                               setCharityPayment.mutate({
                                 monthId: charityActive.id,

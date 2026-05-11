@@ -107,7 +107,7 @@ export default function AdminPage() {
   const [uploading, setUploading] = useState(false);
   const [confirmCloseCycle, setConfirmCloseCycle] = useState(false);
 
-  const participantsQuery = trpc.admin.listParticipants.useQuery(undefined, { enabled: isAdmin });
+  const participantsQuery = trpc.participant.list.useQuery(undefined, { enabled: isAdmin });
   const statsQuery = trpc.participant.stats.useQuery(undefined, { enabled: isAdmin });
   const donationsQuery = trpc.admin.listDonations.useQuery(undefined, { enabled: isAdmin });
   const fundSummaryQuery = trpc.admin.fundSummary.useQuery(undefined, { enabled: isAdmin });
@@ -118,7 +118,6 @@ export default function AdminPage() {
     { enabled: isAdmin && participantOpen && Boolean(participantForm.id) },
   );
   const adminAuthError = [
-    participantsQuery.error,
     donationsQuery.error,
     fundSummaryQuery.error,
     ledgerQuery.error,

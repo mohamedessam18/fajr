@@ -1,0 +1,39 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="720" rx="36" fill="#0a0e1a"/>
+  <text x="640" y="92" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="36" font-weight="800" text-anchor="middle">Application Architecture</text>
+  <text x="640" y="128" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="18" text-anchor="middle">A compact Vercel-ready stack for the Sahseh Lel Fajr community app.</text>
+  <defs>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0L10 5L0 10V0Z" fill="#f59e0b"/>
+    </marker>
+  </defs>
+  <g font-family="Inter, Arial, sans-serif">
+    <rect x="90" y="238" width="230" height="132" rx="24" fill="#111827" stroke="#38bdf8" stroke-opacity=".38"/>
+    <text x="205" y="294" fill="#f8fafc" font-size="24" font-weight="800" text-anchor="middle">React UI</text>
+    <text x="205" y="326" fill="#94a3b8" font-size="15" text-anchor="middle">RTL public and admin views</text>
+    <rect x="402" y="238" width="230" height="132" rx="24" fill="#111827" stroke="#f59e0b" stroke-opacity=".44"/>
+    <text x="517" y="294" fill="#f8fafc" font-size="24" font-weight="800" text-anchor="middle">tRPC + Hono</text>
+    <text x="517" y="326" fill="#94a3b8" font-size="15" text-anchor="middle">Typed API layer</text>
+    <rect x="714" y="238" width="230" height="132" rx="24" fill="#111827" stroke="#22c55e" stroke-opacity=".4"/>
+    <text x="829" y="294" fill="#f8fafc" font-size="24" font-weight="800" text-anchor="middle">Drizzle ORM</text>
+    <text x="829" y="326" fill="#94a3b8" font-size="15" text-anchor="middle">Schema and migrations</text>
+    <rect x="1026" y="238" width="164" height="132" rx="24" fill="#111827" stroke="#a78bfa" stroke-opacity=".44"/>
+    <text x="1108" y="294" fill="#f8fafc" font-size="24" font-weight="800" text-anchor="middle">Postgres</text>
+    <text x="1108" y="326" fill="#94a3b8" font-size="15" text-anchor="middle">Persistent data</text>
+    <path d="M320 304H390" stroke="#f59e0b" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M632 304H702" stroke="#f59e0b" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M944 304H1014" stroke="#f59e0b" stroke-width="4" marker-end="url(#arrow)"/>
+    <rect x="249" y="478" width="230" height="112" rx="24" fill="#111827" stroke="#ffffff" stroke-opacity=".12"/>
+    <text x="364" y="527" fill="#f8fafc" font-size="23" font-weight="800" text-anchor="middle">Vercel</text>
+    <text x="364" y="558" fill="#94a3b8" font-size="15" text-anchor="middle">Production hosting</text>
+    <rect x="525" y="478" width="230" height="112" rx="24" fill="#111827" stroke="#ffffff" stroke-opacity=".12"/>
+    <text x="640" y="527" fill="#f8fafc" font-size="23" font-weight="800" text-anchor="middle">Admin API</text>
+    <text x="640" y="558" fill="#94a3b8" font-size="15" text-anchor="middle">Participant management</text>
+    <rect x="801" y="478" width="230" height="112" rx="24" fill="#111827" stroke="#ffffff" stroke-opacity=".12"/>
+    <text x="916" y="527" fill="#f8fafc" font-size="23" font-weight="800" text-anchor="middle">Image Uploads</text>
+    <text x="916" y="558" fill="#94a3b8" font-size="15" text-anchor="middle">Stored as data URLs</text>
+    <path d="M517 370V450C517 466 501 478 479 478" stroke="#334155" stroke-width="3"/>
+    <path d="M640 370V478" stroke="#334155" stroke-width="3"/>
+    <path d="M829 370V450C829 466 845 478 867 478" stroke="#334155" stroke-width="3"/>
+  </g>
+</svg>

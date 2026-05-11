@@ -8,6 +8,17 @@ Sahseh Lel Fajr is a private Arabic web app for tracking a small community's Faj
 
 [Live production app](https://fajr-zeta.vercel.app)
 
+<p align="center">
+  <img src="docs/readme/hero-preview.svg" alt="Sahseh Lel Fajr overview preview" width="100%" />
+</p>
+
+## Preview
+
+<p align="center">
+  <img src="docs/readme/admin-preview.svg" alt="Admin dashboard preview" width="49%" />
+  <img src="docs/readme/architecture.svg" alt="Application architecture diagram" width="49%" />
+</p>
+
 ## Features
 
 - Arabic RTL interface with responsive public and admin views.

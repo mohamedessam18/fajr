@@ -1,0 +1,34 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="720" rx="36" fill="#0a0e1a"/>
+  <radialGradient id="sunrise" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1040 120) rotate(139) scale(760 520)">
+    <stop stop-color="#fbbf24" stop-opacity=".34"/>
+    <stop offset=".46" stop-color="#b45309" stop-opacity=".16"/>
+    <stop offset="1" stop-color="#0a0e1a" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="1280" height="720" fill="url(#sunrise)"/>
+  <circle cx="1060" cy="178" r="112" fill="#f59e0b" opacity=".12"/>
+  <circle cx="1060" cy="178" r="72" fill="#fbbf24" opacity=".18"/>
+  <path d="M120 130h1040" stroke="#ffffff" stroke-opacity=".08"/>
+  <text x="120" y="92" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700">Sahseh Lel Fajr</text>
+  <text x="1064" y="92" fill="#fbbf24" font-family="Inter, Arial, sans-serif" font-size="20" text-anchor="end">Live community tracker</text>
+  <text x="120" y="258" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="68" font-weight="800">Fajr Commitment</text>
+  <text x="120" y="332" fill="#fbbf24" font-family="Inter, Arial, sans-serif" font-size="68" font-weight="800">Donation Dashboard</text>
+  <text x="120" y="390" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="24">Track participants, missed days, paid fines, and ongoing charity in one Arabic RTL app.</text>
+  <rect x="120" y="458" width="210" height="58" rx="18" fill="#f59e0b"/>
+  <text x="225" y="495" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="800" text-anchor="middle">Admin Ready</text>
+  <rect x="352" y="458" width="230" height="58" rx="18" fill="#111827" stroke="#ffffff" stroke-opacity=".16"/>
+  <text x="467" y="495" fill="#e5e7eb" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" text-anchor="middle">Vercel Deployed</text>
+  <g transform="translate(760 300)">
+    <rect width="350" height="250" rx="28" fill="#111827" stroke="#ffffff" stroke-opacity=".12"/>
+    <rect x="28" y="28" width="294" height="44" rx="14" fill="#1f2937"/>
+    <circle cx="56" cy="50" r="14" fill="#f59e0b"/>
+    <rect x="84" y="43" width="166" height="14" rx="7" fill="#cbd5e1" opacity=".74"/>
+    <rect x="28" y="96" width="86" height="96" rx="18" fill="#f59e0b" opacity=".18"/>
+    <rect x="132" y="96" width="86" height="96" rx="18" fill="#22c55e" opacity=".14"/>
+    <rect x="236" y="96" width="86" height="96" rx="18" fill="#38bdf8" opacity=".14"/>
+    <text x="71" y="149" fill="#fbbf24" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" text-anchor="middle">10</text>
+    <text x="175" y="149" fill="#86efac" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" text-anchor="middle">120</text>
+    <text x="279" y="149" fill="#7dd3fc" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" text-anchor="middle">24</text>
+    <rect x="28" y="214" width="294" height="12" rx="6" fill="#334155"/>
+  </g>
+</svg>

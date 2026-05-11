@@ -4,6 +4,7 @@ import StatsSection from "@/sections/StatsSection";
 import ParticipantsSection from "@/sections/ParticipantsSection";
 import { motion } from "framer-motion";
 import { Heart } from "lucide-react";
+import ThemedLogo from "@/components/ThemedLogo";
 
 export default function Home() {
   return (
@@ -25,7 +26,7 @@ export default function Home() {
             className="text-center"
           >
             <div className="flex items-center justify-center gap-3 mb-4">
-              <img src="/assets/logo.png" alt="" className="w-8 h-8 object-contain" />
+              <ThemedLogo alt="" className="w-8 h-8" />
               <span className="text-lg font-bold text-gradient">صحصح للفجر</span>
             </div>
             <p className="text-sm text-muted-foreground mb-4">

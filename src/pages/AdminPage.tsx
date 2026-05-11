@@ -21,6 +21,7 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useAdmin } from "@/hooks/useAdmin";
 import { toast } from "sonner";
+import ThemedLogo from "@/components/ThemedLogo";
 
 interface ParticipantFormData {
   id?: number;
@@ -361,7 +362,7 @@ export default function AdminPage() {
           className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8"
         >
           <div className="flex items-center gap-3">
-            <img src="/assets/logo.png" alt="" className="w-10 h-10 object-contain" />
+            <ThemedLogo alt="" className="w-10 h-10" />
             <div>
               <h1 className="text-xl font-bold text-gradient">لوحة التحكم</h1>
               <p className="text-xs text-muted-foreground">إدارة المشاركين والإحصائيات</p>

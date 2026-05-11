@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Moon, Sun, Menu, X, Shield } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
+import ThemedLogo from "@/components/ThemedLogo";
 
 export default function Navbar() {
   const { theme, toggleTheme } = useTheme();
@@ -41,11 +42,7 @@ export default function Navbar() {
               className="flex items-center gap-3 cursor-pointer"
               onClick={() => scrollToSection("hero")}
             >
-              <img
-                src="/assets/logo.png"
-                alt="صحصح للفجر"
-                className="h-10 w-10 md:h-12 md:w-12 object-contain"
-              />
+              <ThemedLogo className="h-10 w-10 md:h-12 md:w-12" />
               <span className="text-lg md:text-xl font-bold text-gradient">
                 صحصح للفجر
               </span>

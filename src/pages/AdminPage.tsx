@@ -1,39 +1,63 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import {
-  Shield,
+  AlertCircle,
+  CheckCircle2,
+  Coins,
+  HandHeart,
+  LayoutDashboard,
   Lock,
   LogOut,
-  Users,
-  Plus,
   Pencil,
-  Trash2,
+  Plus,
   Save,
-  X,
-  XCircle,
-  AlertCircle,
-  ChevronLeft,
-  Coins,
-  User,
+  Settings,
+  Shield,
+  Trash2,
   Upload,
+  User,
+  Users,
+  Wallet,
+  X,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { trpc } from "@/providers/trpc";
 import { useAdmin } from "@/hooks/useAdmin";
-import { toast } from "sonner";
+import { formatDate, formatMoney } from "@/lib/format";
 
-interface ParticipantFormData {
+type AdminTab = "participants" | "donations" | "money" | "settings";
+
+type ParticipantFormData = {
   id?: number;
   name: string;
   missedCount: number;
   paidAmount: number;
   unpaidAmount: number;
   image: string;
-}
+};
 
-const SAVE_TIMEOUT_MS = 20000;
+type MediaDraft = {
+  url: string;
+  pathname?: string | null;
+  type: "image" | "video";
+  mimeType?: string | null;
+  fileName?: string | null;
+  size?: number | null;
+  sortOrder?: number;
+};
 
-const emptyForm: ParticipantFormData = {
+type DonationFormData = {
+  title: string;
+  summary: string;
+  description: string;
+  amount: number;
+  donatedAt: string;
+  published: boolean;
+  media: MediaDraft[];
+};
+
+const emptyParticipant: ParticipantFormData = {
   name: "",
   missedCount: 0,
   paidAmount: 0,
@@ -41,112 +65,143 @@ const emptyForm: ParticipantFormData = {
   image: "",
 };
 
+const emptyDonation: DonationFormData = {
+  title: "",
+  summary: "",
+  description: "",
+  amount: 0,
+  donatedAt: new Date().toISOString().slice(0, 10),
+  published: true,
+  media: [],
+};
+
+const SAVE_TIMEOUT_MS = 20000;
+
+function getAdminToken() {
+  return localStorage.getItem("sahseh_admin_token") ?? "";
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function AdminPage() {
   const navigate = useNavigate();
   const { isAdmin, login, logout } = useAdmin();
+  const utils = trpc.useUtils();
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginPending, setLoginPending] = useState(false);
-  const [savingPending, setSavingPending] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<ParticipantFormData>(emptyForm);
+  const [activeTab, setActiveTab] = useState<AdminTab>("participants");
+  const [participantForm, setParticipantForm] = useState<ParticipantFormData>(emptyParticipant);
+  const [participantOpen, setParticipantOpen] = useState(false);
+  const [participantSaving, setParticipantSaving] = useState(false);
+  const [donationOpen, setDonationOpen] = useState(false);
+  const [donationStep, setDonationStep] = useState(1);
+  const [donationForm, setDonationForm] = useState<DonationFormData>(emptyDonation);
+  const [uploading, setUploading] = useState(false);
+  const [confirmCloseCycle, setConfirmCloseCycle] = useState(false);
 
-  const utils = trpc.useUtils();
+  const participantsQuery = trpc.admin.listParticipants.useQuery(undefined, { enabled: isAdmin });
+  const statsQuery = trpc.participant.stats.useQuery(undefined, { enabled: isAdmin });
+  const donationsQuery = trpc.admin.listDonations.useQuery(undefined, { enabled: isAdmin });
+  const fundSummaryQuery = trpc.admin.fundSummary.useQuery(undefined, { enabled: isAdmin });
+  const ledgerQuery = trpc.moneyFlow.adminLedger.useQuery(undefined, { enabled: isAdmin });
 
-  const { data: participantsList } = trpc.admin.listParticipants.useQuery(undefined, {
-    enabled: isAdmin,
-  });
-  const { data: stats } = trpc.participant.stats.useQuery(undefined, {
-    enabled: isAdmin,
-  });
-
-  const loginMutation = trpc.admin.login.useMutation({
-    onSuccess: (data) => {
-      if (data.success && data.token) {
-        login(data.token);
-        setLoginError("");
-        toast.success("تم تسجيل الدخول بنجاح");
-      } else {
-        setLoginError("كلمة المرور غير صحيحة");
+  const createDonation = trpc.admin.createDonation.useMutation({
+    onSuccess: (result) => {
+      if (!result.success) {
+        if (result.error === "INSUFFICIENT_BALANCE") toast.error("الرصيد غير كافي");
+        if (result.error === "CLOSE_CYCLE_CONFIRMATION_REQUIRED") {
+          setConfirmCloseCycle(true);
+          toast.message("هذا التبرع يساوي الرصيد بالكامل، أكد إقفال الدورة.");
+        }
+        return;
       }
+      toast.success(result.closedCycle ? "تم حفظ التبرع وإقفال الدورة" : "تم حفظ التبرع");
+      setDonationOpen(false);
+      setDonationStep(1);
+      setConfirmCloseCycle(false);
+      setDonationForm(emptyDonation);
+      refreshAll();
     },
-    onError: () => {
-      setLoginError("حدث خطأ أثناء تسجيل الدخول");
+    onError: () => toast.error("تعذر حفظ التبرع"),
+  });
+
+  const deleteDonation = trpc.admin.deleteDonation.useMutation({
+    onSuccess: (result) => {
+      if (!result.success) {
+        toast.error("لا يمكن حذف تبرع أغلق دورة محفوظة");
+        return;
+      }
+      toast.success("تم حذف التبرع");
+      refreshAll();
     },
   });
 
-  const loginAdmin = async (passwordValue: string) => {
+  const tabs = [
+    { id: "participants" as const, label: "المشاركون", icon: Users },
+    { id: "donations" as const, label: "التبرعات", icon: HandHeart },
+    { id: "money" as const, label: "سجل الفلوس", icon: Wallet },
+    { id: "settings" as const, label: "الإعدادات", icon: Settings },
+  ];
+
+  const ledgerCycles = ledgerQuery.data?.cycles ?? [];
+  const activeCycle = ledgerCycles.find((cycle) => cycle.status === "active") ?? ledgerCycles[0];
+  const currentBalance = fundSummaryQuery.data?.balance ?? activeCycle?.balance ?? 0;
+  const balanceAfterDonation = currentBalance - donationForm.amount;
+  const closesCycle = donationForm.amount > 0 && donationForm.amount === currentBalance;
+
+  const donationCanContinue = useMemo(() => {
+    if (donationStep === 1) {
+      return donationForm.title.trim() && donationForm.description.trim() && donationForm.amount > 0;
+    }
+    return true;
+  }, [donationForm, donationStep]);
+
+  function refreshAll() {
+    utils.admin.listParticipants.invalidate();
+    utils.participant.list.invalidate();
+    utils.participant.stats.invalidate();
+    utils.admin.listDonations.invalidate();
+    utils.admin.fundSummary.invalidate();
+    utils.moneyFlow.adminLedger.invalidate();
+    utils.moneyFlow.publicLedger.invalidate();
+    utils.donation.list.invalidate();
+  }
+
+  async function loginAdmin(event: React.FormEvent) {
+    event.preventDefault();
+    if (!password.trim()) return;
     setLoginPending(true);
     try {
       const response = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ password: passwordValue }),
+        body: JSON.stringify({ password }),
       });
       const data = (await response.json()) as { success: boolean; token: string | null };
-
       if (data.success && data.token) {
         login(data.token);
         setLoginError("");
-        toast.success("تم تسجيل الدخول بنجاح");
+        toast.success("تم تسجيل الدخول");
       } else {
         setLoginError("كلمة المرور غير صحيحة");
       }
     } catch {
-      setLoginError("حدث خطأ أثناء تسجيل الدخول");
+      setLoginError("تعذر تسجيل الدخول");
     } finally {
       setLoginPending(false);
     }
-  };
+  }
 
-  void loginMutation;
-
-  const addMutation = trpc.admin.addParticipant.useMutation({
-    onSuccess: () => {
-      utils.admin.listParticipants.invalidate();
-      utils.participant.list.invalidate();
-      utils.participant.stats.invalidate();
-      setShowForm(false);
-      setFormData(emptyForm);
-      toast.success("تم إضافة المشارك بنجاح");
-    },
-  });
-
-  const updateMutation = trpc.admin.updateParticipant.useMutation({
-    onSuccess: () => {
-      utils.admin.listParticipants.invalidate();
-      utils.participant.list.invalidate();
-      utils.participant.stats.invalidate();
-      utils.participant.byId.invalidate();
-      setShowForm(false);
-      setEditingId(null);
-      setFormData(emptyForm);
-      toast.success("تم تحديث البيانات بنجاح");
-    },
-  });
-
-  const deleteMutation = trpc.admin.deleteParticipant.useMutation({
-    onSuccess: () => {
-      utils.admin.listParticipants.invalidate();
-      utils.participant.list.invalidate();
-      utils.participant.stats.invalidate();
-      toast.success("تم حذف المشارك بنجاح");
-    },
-  });
-
-  void addMutation;
-  void updateMutation;
-  void deleteMutation;
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!password.trim()) return;
-    void loginAdmin(password);
-  };
-
-  const handleEdit = (participant: NonNullable<typeof participantsList>[0]) => {
-    setFormData({
+  function editParticipant(participant: NonNullable<typeof participantsQuery.data>[number]) {
+    setParticipantForm({
       id: participant.id,
       name: participant.name,
       missedCount: participant.missedCount,
@@ -154,520 +209,620 @@ export default function AdminPage() {
       unpaidAmount: participant.unpaidAmount,
       image: participant.image || "",
     });
-    setEditingId(participant.id);
-    setShowForm(true);
-  };
+    setParticipantOpen(true);
+  }
 
-  const refreshAdminData = () => {
-    utils.admin.listParticipants.invalidate();
-    utils.participant.list.invalidate();
-    utils.participant.stats.invalidate();
-    utils.participant.byId.invalidate();
-  };
-
-  const getAdminToken = () => localStorage.getItem("sahseh_admin_token") ?? "";
-
-  const saveParticipant = async () => {
+  async function saveParticipant(event: React.FormEvent) {
+    event.preventDefault();
+    if (!participantForm.name.trim()) {
+      toast.error("اسم المشارك مطلوب");
+      return;
+    }
+    setParticipantSaving(true);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS);
-
-    let response: Response;
     try {
-      response = await fetch(
-        editingId ? `/api/admin/participants/${editingId}` : "/api/admin/participants",
+      const response = await fetch(
+        participantForm.id ? `/api/admin/participants/${participantForm.id}` : "/api/admin/participants",
         {
-          method: editingId ? "PUT" : "POST",
+          method: participantForm.id ? "PUT" : "POST",
+          headers: {
+            authorization: `Bearer ${getAdminToken()}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(participantForm),
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) throw new Error("Save failed");
+      toast.success(participantForm.id ? "تم تحديث المشارك" : "تم إضافة المشارك");
+      setParticipantOpen(false);
+      setParticipantForm(emptyParticipant);
+      refreshAll();
+    } catch {
+      toast.error("تعذر حفظ المشارك");
+    } finally {
+      window.clearTimeout(timeout);
+      setParticipantSaving(false);
+    }
+  }
+
+  async function deleteParticipant(id: number, name: string) {
+    if (!window.confirm(`هل تريد حذف ${name}؟`)) return;
+    const response = await fetch(`/api/admin/participants/${id}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${getAdminToken()}` },
+    });
+    if (response.ok) {
+      toast.success("تم حذف المشارك");
+      refreshAll();
+    } else {
+      toast.error("تعذر حذف المشارك");
+    }
+  }
+
+  async function uploadDonationFiles(files: FileList | null) {
+    if (!files?.length) return;
+    setUploading(true);
+    try {
+      const uploaded: MediaDraft[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+          toast.error(`${file.name} ليس صورة أو فيديو`);
+          continue;
+        }
+        if (file.size > 25 * 1024 * 1024) {
+          toast.error(`${file.name} أكبر من 25MB`);
+          continue;
+        }
+        const dataUrl = await readFileAsDataUrl(file);
+        const response = await fetch("/api/admin/uploads", {
+          method: "POST",
           headers: {
             authorization: `Bearer ${getAdminToken()}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            name: formData.name.trim(),
-            missedCount: formData.missedCount,
-            paidAmount: formData.paidAmount,
-            unpaidAmount: formData.unpaidAmount,
-            image: formData.image.trim() || undefined,
+            dataUrl,
+            fileName: file.name,
+            mimeType: file.type,
           }),
-          signal: controller.signal,
-        },
-      );
-    } finally {
-      window.clearTimeout(timeout);
-    }
-
-    if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(data?.error || "Save failed");
-    }
-  };
-
-  const handleImageUpload = (file: File | undefined) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("اختر ملف صورة فقط");
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("حجم الصورة يجب أن يكون أقل من 2MB");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setFormData((current) => ({ ...current, image: reader.result as string }));
-        toast.success("تم اختيار الصورة بنجاح");
-      }
-    };
-    reader.onerror = () => {
-      toast.error("تعذر رفع الصورة");
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name.trim()) {
-      toast.error("الاسم مطلوب");
-      return;
-    }
-
-    setSavingPending(true);
-    try {
-      await saveParticipant();
-      refreshAdminData();
-      setShowForm(false);
-      setEditingId(null);
-      setFormData(emptyForm);
-      toast.success(editingId ? "تم تحديث البيانات بنجاح" : "تم إضافة المشارك بنجاح");
-    } catch (error) {
-      const message = error instanceof Error && error.name === "AbortError"
-        ? "الحفظ استغرق وقت أطول من المتوقع. حاول مرة أخرى."
-        : "حدث خطأ أثناء الحفظ";
-      toast.error(message);
-    } finally {
-      setSavingPending(false);
-    }
-  };
-
-  const handleDelete = async (id: number, name: string) => {
-    if (window.confirm(`هل أنت متأكد من حذف "${name}"؟`)) {
-      try {
-        const response = await fetch(`/api/admin/participants/${id}`, {
-          method: "DELETE",
-          headers: {
-            authorization: `Bearer ${getAdminToken()}`,
-          },
         });
-        if (!response.ok) throw new Error("Delete failed");
-        refreshAdminData();
-        toast.success("تم حذف المشارك بنجاح");
-      } catch {
-        toast.error("حدث خطأ أثناء الحذف");
+        const data = (await response.json()) as { success: boolean; media?: MediaDraft; error?: string };
+        if (!response.ok || !data.success || !data.media) throw new Error(data.error || "Upload failed");
+        uploaded.push({ ...data.media, sortOrder: donationForm.media.length + uploaded.length });
       }
+      setDonationForm((current) => ({ ...current, media: [...current.media, ...uploaded] }));
+      if (uploaded.length) toast.success("تم رفع الملفات");
+    } catch {
+      toast.error("تعذر رفع الملفات. تأكد من إعداد Vercel Blob.");
+    } finally {
+      setUploading(false);
     }
-  };
+  }
 
-  const handleAddNew = () => {
-    setFormData(emptyForm);
-    setEditingId(null);
-    setShowForm(true);
-  };
+  function submitDonation() {
+    if (donationForm.amount > currentBalance) {
+      toast.error("الرصيد غير كافي");
+      return;
+    }
+    createDonation.mutate({
+      ...donationForm,
+      summary: donationForm.summary.trim() || undefined,
+      confirmCloseCycle,
+      media: donationForm.media.map((media, index) => ({ ...media, sortOrder: index })),
+    });
+  }
 
-  // Login Screen
   if (!isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center relative" dir="rtl">
         <div className="absolute inset-0 sunrise-gradient" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(234,179,8,0.1)_0%,_transparent_60%)]" />
-
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
+        <motion.form
+          onSubmit={loginAdmin}
+          initial={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="relative z-10 w-full max-w-md mx-4"
+          className="relative z-10 w-full max-w-md mx-4 glass-strong rounded-2xl p-8"
         >
-          <div className="glass-strong rounded-3xl p-8 shadow-2xl">
-            <div className="text-center mb-8">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", damping: 15 }}
-                className="w-20 h-20 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-5 border border-amber-500/20"
-              >
-                <Shield className="w-10 h-10 text-amber-400" />
-              </motion.div>
-              <h1 className="text-2xl font-bold text-gradient mb-2">لوحة التحكم</h1>
-              <p className="text-sm text-muted-foreground">يجب تسجيل الدخول للوصول إلى لوحة التحكم</p>
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-8 h-8 text-amber-300" />
             </div>
-
-            <form onSubmit={handleLogin}>
-              <div className="space-y-4">
-                <div className="relative">
-                  <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="كلمة المرور"
-                    className="w-full pr-12 pl-4 py-3 rounded-xl glass border border-border/50 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
-                  />
-                </div>
-                {loginError && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-red-400 text-sm text-center"
-                  >
-                    {loginError}
-                  </motion.p>
-                )}
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  type="submit"
-                  disabled={loginPending}
-                  className="w-full py-3 rounded-xl gold-gradient text-[#0a0e1a] font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {loginPending ? "جاري تسجيل الدخول..." : "تسجيل الدخول"}
-                </motion.button>
-              </div>
-            </form>
-
-            <button
-              onClick={() => navigate("/")}
-              className="w-full mt-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              العودة للرئيسية
-            </button>
+            <h1 className="text-2xl font-bold text-gradient mb-2">لوحة التحكم</h1>
+            <p className="text-sm text-muted-foreground">تسجيل دخول الأدمن</p>
           </div>
-        </motion.div>
+          <div className="relative mb-4">
+            <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="كلمة المرور"
+              className="w-full pr-12 pl-4 py-3 rounded-xl glass border border-border/50 outline-none focus:border-amber-500/50"
+            />
+          </div>
+          {loginError && <p className="mb-4 text-center text-sm text-red-300">{loginError}</p>}
+          <button disabled={loginPending} className="w-full py-3 rounded-xl gold-gradient text-[#0a0e1a] font-bold">
+            {loginPending ? "جاري الدخول..." : "دخول"}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="w-full mt-4 text-sm text-muted-foreground hover:text-foreground"
+          >
+            العودة للرئيسية
+          </button>
+        </motion.form>
       </div>
     );
   }
 
-  // Dashboard
   return (
     <div className="min-h-screen relative" dir="rtl">
       <div className="absolute inset-0 sunrise-gradient" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(234,179,8,0.05)_0%,_transparent_60%)]" />
-
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8"
-        >
-          <div className="flex items-center gap-3">
+      <div className="relative z-10 flex min-h-screen">
+        <aside className="hidden lg:flex w-72 flex-col border-l border-border/40 bg-background/40 backdrop-blur-xl p-5">
+          <div className="flex items-center gap-3 mb-8">
             <img src="/assets/logo.png" alt="" className="w-10 h-10 object-contain" />
             <div>
-              <h1 className="text-xl font-bold text-gradient">لوحة التحكم</h1>
-              <p className="text-xs text-muted-foreground">إدارة المشاركين والإحصائيات</p>
+              <h1 className="font-bold text-gradient">صحصح للفجر</h1>
+              <p className="text-xs text-muted-foreground">لوحة v1.2.0</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleAddNew}
-              className="px-4 py-2 rounded-xl gold-gradient text-[#0a0e1a] font-bold text-sm flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              إضافة مشارك
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+          <nav className="space-y-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition ${
+                  activeTab === tab.id ? "bg-amber-500/15 text-amber-200" : "text-muted-foreground hover:bg-white/5"
+                }`}
+              >
+                <tab.icon className="w-5 h-5" />
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <div className="mt-auto space-y-2">
+            <button onClick={() => navigate("/")} className="w-full rounded-xl glass px-4 py-3 text-sm text-muted-foreground">
+              العودة للموقع
+            </button>
+            <button
               onClick={() => {
                 logout();
                 toast.success("تم تسجيل الخروج");
               }}
-              className="p-2 rounded-xl glass hover:bg-white/10 transition-colors"
-              title="تسجيل الخروج"
+              className="w-full flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm text-red-300 hover:bg-red-500/10"
             >
-              <LogOut className="w-5 h-5 text-muted-foreground" />
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => navigate("/")}
-              className="px-3 py-2 rounded-xl glass hover:bg-white/10 transition-colors text-sm text-muted-foreground"
-            >
-              العودة للرئيسية
-            </motion.button>
+              <LogOut className="w-4 h-4" />
+              تسجيل الخروج
+            </button>
           </div>
-        </motion.div>
+        </aside>
 
-        {/* Stats Cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
-        >
-          {[
-            { icon: <Coins className="w-5 h-5" />, label: "المبالغ المجمعة", value: `${stats?.totalCollected ?? 0} جنيه`, color: "text-amber-400", bg: "bg-amber-500/10" },
-            { icon: <Users className="w-5 h-5" />, label: "عدد المشاركين", value: `${stats?.totalParticipants ?? 0}`, color: "text-blue-400", bg: "bg-blue-500/10" },
-            { icon: <XCircle className="w-5 h-5" />, label: "مرات التغيب", value: `${stats?.totalMissed ?? 0}`, color: "text-red-400", bg: "bg-red-500/10" },
-            { icon: <AlertCircle className="w-5 h-5" />, label: "غير مسدد", value: `${stats?.totalUnpaid ?? 0} جنيه`, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-          ].map((stat, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 + i * 0.05 }}
-              className="glass-strong rounded-xl p-4"
-            >
-              <div className={`inline-flex items-center justify-center w-10 h-10 rounded-lg ${stat.bg} ${stat.color} mb-3`}>
-                {stat.icon}
+        <main className="flex-1 p-4 md:p-8 overflow-x-hidden">
+          <div className="lg:hidden mb-4 grid grid-cols-2 gap-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-xl px-3 py-2 text-sm ${activeTab === tab.id ? "bg-amber-500/15 text-amber-200" : "glass"}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <header className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <p className="text-sm text-amber-300">لوحة التحكم</p>
+              <h1 className="text-2xl md:text-4xl font-extrabold text-gradient">
+                {tabs.find((tab) => tab.id === activeTab)?.label}
+              </h1>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard icon={Coins} label="المجمع" value={formatMoney(statsQuery.data?.totalCollected)} />
+              <StatCard icon={Wallet} label="الرصيد" value={formatMoney(currentBalance)} />
+              <StatCard icon={Users} label="المشاركون" value={String(statsQuery.data?.totalParticipants ?? 0)} />
+              <StatCard icon={LayoutDashboard} label="الدورة" value={activeCycle?.status === "active" ? "نشطة" : "مغلقة"} />
+            </div>
+          </header>
+
+          {activeTab === "participants" && (
+            <section className="glass-strong rounded-2xl overflow-hidden">
+              <div className="p-5 border-b border-border/50 flex items-center justify-between">
+                <h2 className="font-bold flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-300" />
+                  المشاركون
+                </h2>
+                <button
+                  onClick={() => {
+                    setParticipantForm(emptyParticipant);
+                    setParticipantOpen(true);
+                  }}
+                  className="rounded-xl gold-gradient px-4 py-2 text-sm font-bold text-[#0a0e1a] flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  إضافة
+                </button>
               </div>
-              <div className="text-lg md:text-xl font-bold text-foreground">{stat.value}</div>
-              <div className="text-xs text-muted-foreground mt-1">{stat.label}</div>
-            </motion.div>
-          ))}
-        </motion.div>
-
-        {/* Participants Table */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="glass-strong rounded-2xl overflow-hidden"
-        >
-          <div className="p-4 md:p-6 border-b border-border/50">
-            <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-              <Users className="w-5 h-5 text-amber-400" />
-              قائمة المشاركين
-            </h2>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/30">
-                  <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">المشارك</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">التغيبات</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">المسدد</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">المستحق</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
-                <AnimatePresence mode="popLayout">
-                  {participantsList?.map((p, i) => (
-                    <motion.tr
-                      key={p.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20 }}
-                      transition={{ delay: i * 0.03 }}
-                      className="border-b border-border/20 hover:bg-white/5 transition-colors"
-                    >
+              <DataTable>
+                <thead>
+                  <tr className="border-b border-border/30 text-xs text-muted-foreground">
+                    <th className="px-4 py-3 text-right">المشارك</th>
+                    <th className="px-4 py-3 text-center">الغيابات</th>
+                    <th className="px-4 py-3 text-center">المدفوع</th>
+                    <th className="px-4 py-3 text-center">المستحق</th>
+                    <th className="px-4 py-3 text-center">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {participantsQuery.data?.map((participant) => (
+                    <tr key={participant.id} className="border-b border-border/20">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full overflow-hidden border border-border/50 flex-shrink-0">
-                            {p.image ? (
-                              <img src={p.image} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full bg-muted flex items-center justify-center">
-                                <User className="w-4 h-4 text-muted-foreground" />
-                              </div>
-                            )}
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-muted">
+                            {participant.image ? <img src={participant.image} alt="" className="w-full h-full object-cover" /> : <User className="m-3 w-4 h-4" />}
                           </div>
-                          <span className="font-medium text-sm text-foreground">{p.name}</span>
+                          <span className="font-medium">{participant.name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${p.missedCount > 0 ? "bg-red-500/15 text-red-400" : "bg-emerald-500/15 text-emerald-400"}`}>
-                          {p.missedCount}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center text-sm text-emerald-400 font-medium">
-                        {p.paidAmount} ج
-                      </td>
-                      <td className="px-4 py-3 text-center text-sm text-amber-400 font-medium">
-                        {p.unpaidAmount} ج
-                      </td>
+                      <td className="px-4 py-3 text-center">{participant.missedCount}</td>
+                      <td className="px-4 py-3 text-center text-emerald-300">{formatMoney(participant.paidAmount)}</td>
+                      <td className="px-4 py-3 text-center text-amber-300">{formatMoney(participant.unpaidAmount)}</td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-2">
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleEdit(p)}
-                            className="p-1.5 rounded-lg glass hover:bg-blue-500/10 text-blue-400 transition-colors"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </motion.button>
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleDelete(p.id, p.name)}
-                            className="p-1.5 rounded-lg glass hover:bg-red-500/10 text-red-400 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </motion.button>
+                        <div className="flex justify-center gap-2">
+                          <IconButton onClick={() => editParticipant(participant)} icon={Pencil} />
+                          <IconButton onClick={() => deleteParticipant(participant.id, participant.name)} icon={Trash2} danger />
                         </div>
                       </td>
-                    </motion.tr>
+                    </tr>
                   ))}
-                </AnimatePresence>
-              </tbody>
-            </table>
-          </div>
-        </motion.div>
+                </tbody>
+              </DataTable>
+            </section>
+          )}
+
+          {activeTab === "donations" && (
+            <section className="space-y-5">
+              <div className="glass-strong rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                  <h2 className="font-bold">إدارة التبرعات</h2>
+                  <p className="text-sm text-muted-foreground">إضافة التبرعات تخصم من الرصيد وتظهر للزوار.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setDonationForm(emptyDonation);
+                    setDonationStep(1);
+                    setConfirmCloseCycle(false);
+                    setDonationOpen(true);
+                  }}
+                  className="rounded-xl gold-gradient px-4 py-2 text-sm font-bold text-[#0a0e1a] flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  تبرع جديد
+                </button>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {donationsQuery.data?.map((donation) => (
+                  <div key={donation.id} className="glass-strong rounded-2xl overflow-hidden">
+                    <div className="aspect-video bg-muted/20">
+                      {donation.media[0]?.type === "video" ? (
+                        <video src={donation.media[0].url} className="w-full h-full object-cover" muted />
+                      ) : donation.media[0] ? (
+                        <img src={donation.media[0].url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <HandHeart className="w-10 h-10 text-amber-300" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="font-bold">{donation.title}</h3>
+                        <span className="text-sm text-amber-200">{formatMoney(donation.amount)}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{donation.summary || donation.description}</p>
+                      <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{formatDate(donation.donatedAt)}</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => navigate(`/donations/${donation.id}`)} className="text-amber-200">عرض</button>
+                          <button onClick={() => deleteDonation.mutate({ id: donation.id })} className="text-red-300">حذف</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {activeTab === "money" && (
+            <section className="glass-strong rounded-2xl overflow-hidden">
+              <div className="p-5 border-b border-border/50">
+                <h2 className="font-bold">سجل الفلوس الكامل</h2>
+                <p className="text-sm text-muted-foreground">الأدمن يرى أسماء المشاركين في حركات الدخول.</p>
+              </div>
+              <DataTable>
+                <thead>
+                  <tr className="border-b border-border/30 text-xs text-muted-foreground">
+                    <th className="px-4 py-3 text-right">التاريخ</th>
+                    <th className="px-4 py-3 text-right">الحركة</th>
+                    <th className="px-4 py-3 text-right">المشارك</th>
+                    <th className="px-4 py-3 text-center">النوع</th>
+                    <th className="px-4 py-3 text-center">المبلغ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerQuery.data?.entries.map((entry) => (
+                    <tr key={entry.id} className="border-b border-border/20">
+                      <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(entry.occurredAt)}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{entry.title}</div>
+                        <div className="text-xs text-muted-foreground">{entry.description}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm">{entry.participantName ?? "-"}</td>
+                      <td className="px-4 py-3 text-center">{entry.type.includes("out") ? "خروج" : "دخول"}</td>
+                      <td className="px-4 py-3 text-center font-bold">{formatMoney(entry.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            </section>
+          )}
+
+          {activeTab === "settings" && (
+            <section className="grid gap-4 md:grid-cols-2">
+              <div className="glass-strong rounded-2xl p-6">
+                <h2 className="font-bold mb-3">إعدادات التخزين</h2>
+                <p className="text-sm text-muted-foreground leading-7">
+                  رفع الصور والفيديوهات يعتمد على Vercel Blob. يجب وجود متغير
+                  <span className="mx-1 rounded bg-white/10 px-2 py-1 font-mono text-xs">BLOB_READ_WRITE_TOKEN</span>
+                  في Vercel production.
+                </p>
+              </div>
+              <div className="glass-strong rounded-2xl p-6">
+                <h2 className="font-bold mb-3">الرصيد الحالي</h2>
+                <p className="text-3xl font-extrabold text-amber-200">{formatMoney(currentBalance)}</p>
+              </div>
+            </section>
+          )}
+        </main>
       </div>
 
-      {/* Form Modal */}
       <AnimatePresence>
-        {showForm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            onClick={() => setShowForm(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-xl"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative z-10 w-full max-w-lg glass-strong rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gradient">
-                  {editingId ? "تعديل مشارك" : "إضافة مشارك جديد"}
-                </h2>
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 90 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setShowForm(false)}
-                  className="p-2 rounded-full glass hover:bg-white/10"
-                >
-                  <X className="w-5 h-5" />
-                </motion.button>
+        {participantOpen && (
+          <Modal onClose={() => setParticipantOpen(false)} title={participantForm.id ? "تعديل مشارك" : "إضافة مشارك"}>
+            <form onSubmit={saveParticipant} className="space-y-4">
+              <TextInput label="الاسم" value={participantForm.name} onChange={(name) => setParticipantForm({ ...participantForm, name })} />
+              <TextInput label="رابط الصورة" value={participantForm.image} onChange={(image) => setParticipantForm({ ...participantForm, image })} />
+              <div className="grid grid-cols-3 gap-3">
+                <NumberInput label="الغيابات" value={participantForm.missedCount} onChange={(missedCount) => setParticipantForm({ ...participantForm, missedCount })} />
+                <NumberInput label="المدفوع" value={participantForm.paidAmount} onChange={(paidAmount) => setParticipantForm({ ...participantForm, paidAmount })} />
+                <NumberInput label="المستحق" value={participantForm.unpaidAmount} onChange={(unpaidAmount) => setParticipantForm({ ...participantForm, unpaidAmount })} />
               </div>
+              <button disabled={participantSaving} className="w-full rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] flex items-center justify-center gap-2">
+                <Save className="w-4 h-4" />
+                {participantSaving ? "جاري الحفظ..." : "حفظ"}
+              </button>
+            </form>
+          </Modal>
+        )}
 
-              <form onSubmit={handleSave} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                    الاسم
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
-                    placeholder="اسم المشارك"
-                    required
-                  />
+        {donationOpen && (
+          <Modal onClose={() => setDonationOpen(false)} title="إضافة تبرع">
+            <div className="mb-5 grid grid-cols-3 gap-2 text-xs">
+              {["البيانات", "الميديا", "المراجعة"].map((step, index) => (
+                <div key={step} className={`rounded-lg py-2 text-center ${donationStep === index + 1 ? "bg-amber-500/20 text-amber-200" : "bg-white/5 text-muted-foreground"}`}>
+                  {step}
                 </div>
+              ))}
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                    صورة المشارك
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.image}
-                    onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
-                    placeholder="/assets/image.jpg"
+            {donationStep === 1 && (
+              <div className="space-y-4">
+                <TextInput label="عنوان التبرع" value={donationForm.title} onChange={(title) => setDonationForm({ ...donationForm, title })} />
+                <NumberInput label="المبلغ" value={donationForm.amount} onChange={(amount) => setDonationForm({ ...donationForm, amount })} />
+                <TextInput label="ملخص قصير" value={donationForm.summary} onChange={(summary) => setDonationForm({ ...donationForm, summary })} />
+                <label className="block">
+                  <span className="mb-1.5 block text-sm text-muted-foreground">التفاصيل</span>
+                  <textarea
+                    value={donationForm.description}
+                    onChange={(event) => setDonationForm({ ...donationForm, description: event.target.value })}
+                    rows={5}
+                    className="w-full rounded-xl glass border border-border/50 px-4 py-3 outline-none focus:border-amber-500/50"
                   />
-                  <label className="mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-500/15">
-                    <Upload className="h-4 w-4" />
-                    رفع صورة من الجهاز
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e.target.files?.[0])}
-                      className="sr-only"
-                    />
-                  </label>
-                  {formData.image && (
-                    <div className="mt-3 flex items-center gap-3">
-                      <img
-                        src={formData.image}
-                        alt=""
-                        className="w-14 h-14 rounded-full object-cover border border-border/50"
-                      />
+                </label>
+                <TextInput label="تاريخ التبرع" type="date" value={donationForm.donatedAt} onChange={(donatedAt) => setDonationForm({ ...donationForm, donatedAt })} />
+              </div>
+            )}
+
+            {donationStep === 2 && (
+              <div>
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-amber-400/40 bg-amber-500/10 p-8 text-center hover:bg-amber-500/15">
+                  <Upload className="mb-3 h-8 w-8 text-amber-200" />
+                  <span className="font-bold">رفع صور أو فيديوهات</span>
+                  <span className="text-xs text-muted-foreground mt-1">حتى 25MB للملف</span>
+                  <input type="file" accept="image/*,video/*" multiple className="sr-only" onChange={(event) => uploadDonationFiles(event.target.files)} />
+                </label>
+                {uploading && <p className="mt-3 text-center text-sm text-amber-200">جاري رفع الملفات...</p>}
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {donationForm.media.map((media, index) => (
+                    <div key={`${media.url}-${index}`} className="relative overflow-hidden rounded-xl glass">
+                      {media.type === "video" ? <video src={media.url} className="aspect-video w-full object-cover" /> : <img src={media.url} alt="" className="aspect-video w-full object-cover" />}
                       <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, image: "" })}
-                        className="text-xs text-red-400 hover:text-red-300"
+                        onClick={() => setDonationForm((current) => ({ ...current, media: current.media.filter((_, mediaIndex) => mediaIndex !== index) }))}
+                        className="absolute left-2 top-2 rounded-full bg-black/60 p-1 text-white"
                       >
-                        حذف الصورة
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
-                  )}
+                  ))}
                 </div>
+              </div>
+            )}
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                      التغيبات
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={formData.missedCount}
-                      onChange={(e) => setFormData({ ...formData, missedCount: parseInt(e.target.value) || 0 })}
-                      className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-foreground focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
-                    />
+            {donationStep === 3 && (
+              <div className="space-y-4">
+                <ReviewRow label="الرصيد الحالي" value={formatMoney(currentBalance)} />
+                <ReviewRow label="مبلغ التبرع" value={formatMoney(donationForm.amount)} />
+                <ReviewRow label="بعد الخصم" value={formatMoney(balanceAfterDonation)} danger={balanceAfterDonation < 0} />
+                {balanceAfterDonation < 0 && (
+                  <div className="rounded-xl bg-red-500/10 p-4 text-sm text-red-200 flex gap-2">
+                    <AlertCircle className="w-5 h-5" />
+                    الرصيد غير كافي لهذا التبرع.
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                      المسدد
-                    </label>
+                )}
+                {closesCycle && (
+                  <label className="flex items-start gap-3 rounded-xl bg-amber-500/10 p-4 text-sm">
                     <input
-                      type="number"
-                      min={0}
-                      value={formData.paidAmount}
-                      onChange={(e) => setFormData({ ...formData, paidAmount: parseInt(e.target.value) || 0 })}
-                      className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-foreground focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
+                      type="checkbox"
+                      checked={confirmCloseCycle}
+                      onChange={(event) => setConfirmCloseCycle(event.target.checked)}
+                      className="mt-1"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                      المستحق
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={formData.unpaidAmount}
-                      onChange={(e) => setFormData({ ...formData, unpaidAmount: parseInt(e.target.value) || 0 })}
-                      className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-foreground focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
-                    />
-                  </div>
+                    <span>أؤكد إقفال الدورة وتصفير بيانات المشاركين بعد حفظ هذا التبرع.</span>
+                  </label>
+                )}
+                <div className="rounded-xl bg-white/5 p-4">
+                  <div className="font-bold mb-1">{donationForm.title}</div>
+                  <p className="text-sm text-muted-foreground">{donationForm.description}</p>
                 </div>
+              </div>
+            )}
 
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  type="submit"
-                  disabled={savingPending}
-                  className="w-full py-3 rounded-xl gold-gradient text-[#0a0e1a] font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50 mt-6"
+            <div className="mt-6 flex gap-3">
+              {donationStep > 1 && (
+                <button onClick={() => setDonationStep((step) => step - 1)} className="flex-1 rounded-xl glass py-3">
+                  السابق
+                </button>
+              )}
+              {donationStep < 3 ? (
+                <button
+                  disabled={!donationCanContinue}
+                  onClick={() => setDonationStep((step) => step + 1)}
+                  className="flex-1 rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] disabled:opacity-50"
                 >
-                  <Save className="w-4 h-4" />
-                  {savingPending
-                    ? "جاري الحفظ..."
-                    : editingId
-                    ? "حفظ التعديلات"
-                    : "إضافة المشارك"}
-                </motion.button>
-              </form>
-            </motion.div>
-          </motion.div>
+                  التالي
+                </button>
+              ) : (
+                <button
+                  disabled={createDonation.isPending || balanceAfterDonation < 0 || (closesCycle && !confirmCloseCycle)}
+                  onClick={submitDonation}
+                  className="flex-1 rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {createDonation.isPending ? "جاري الحفظ..." : "حفظ التبرع"}
+                </button>
+              )}
+            </div>
+          </Modal>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, value }: { icon: typeof Coins; label: string; value: string }) {
+  return (
+    <div className="glass-strong rounded-xl px-4 py-3 min-w-32">
+      <Icon className="w-4 h-4 text-amber-300 mb-2" />
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="font-bold">{value}</div>
+    </div>
+  );
+}
+
+function DataTable({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">{children}</table>
+    </div>
+  );
+}
+
+function IconButton({ onClick, icon: Icon, danger }: { onClick: () => void; icon: typeof Pencil; danger?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-lg p-2 transition ${danger ? "text-red-300 hover:bg-red-500/10" : "text-amber-200 hover:bg-amber-500/10"}`}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
+  );
+}
+
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-xl" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 24, scale: 0.96 }}
+        className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto glass-strong rounded-2xl p-6"
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gradient">{title}</h2>
+          <button onClick={onClose} className="rounded-full p-2 hover:bg-white/10">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function TextInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm text-muted-foreground">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl glass border border-border/50 px-4 py-3 outline-none focus:border-amber-500/50"
+      />
+    </label>
+  );
+}
+
+function NumberInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm text-muted-foreground">{label}</span>
+      <input
+        type="number"
+        min={0}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+        className="w-full rounded-xl glass border border-border/50 px-4 py-3 outline-none focus:border-amber-500/50"
+      />
+    </label>
+  );
+}
+
+function ReviewRow({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-bold ${danger ? "text-red-300" : "text-foreground"}`}>{value}</span>
     </div>
   );
 }

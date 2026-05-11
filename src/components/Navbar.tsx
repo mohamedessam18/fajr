@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Moon, Sun, Menu, X, Shield } from "lucide-react";
+import { useNavigate } from "react-router";
 import { useTheme } from "@/hooks/useTheme";
 import ThemedLogo from "@/components/ThemedLogo";
 
 export default function Navbar() {
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -16,12 +18,29 @@ export default function Navbar() {
   }, []);
 
   const scrollToSection = (id: string) => {
+    if (window.location.pathname !== "/") {
+      navigate("/");
+      window.setTimeout(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+      }, 80);
+      setMobileMenuOpen(false);
+      return;
+    }
+
     const el = document.getElementById(id);
     if (el) {
       el.scrollIntoView({ behavior: "smooth" });
       setMobileMenuOpen(false);
     }
   };
+
+  const navItems = [
+    { label: "الرئيسية", action: () => scrollToSection("hero") },
+    { label: "الإحصائيات", action: () => scrollToSection("stats") },
+    { label: "المشاركون", action: () => scrollToSection("participants") },
+    { label: "التبرعات", action: () => navigate("/donations") },
+    { label: "سجل الفلوس", action: () => navigate("/money-flow") },
+  ];
 
   return (
     <>
@@ -43,20 +62,14 @@ export default function Navbar() {
               onClick={() => scrollToSection("hero")}
             >
               <ThemedLogo className="h-10 w-10 md:h-12 md:w-12" />
-              <span className="text-lg md:text-xl font-bold text-gradient">
-                صحصح للفجر
-              </span>
+              <span className="text-lg md:text-xl font-bold text-gradient">صحصح للفجر</span>
             </motion.div>
 
-            <div className="hidden md:flex items-center gap-8">
-              {[
-                { label: "الرئيسية", id: "hero" },
-                { label: "الإحصائيات", id: "stats" },
-                { label: "المشاركون", id: "participants" },
-              ].map((item) => (
+            <div className="hidden md:flex items-center gap-5">
+              {navItems.map((item) => (
                 <button
-                  key={item.id}
-                  onClick={() => scrollToSection(item.id)}
+                  key={item.label}
+                  onClick={item.action}
                   className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-200 relative group"
                 >
                   {item.label}
@@ -69,7 +82,7 @@ export default function Navbar() {
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => window.location.href = "/admin"}
+                onClick={() => navigate("/admin")}
                 className="p-2 rounded-full text-muted-foreground hover:text-foreground transition-colors"
                 title="لوحة التحكم"
               >
@@ -80,6 +93,7 @@ export default function Navbar() {
                 whileTap={{ scale: 0.95 }}
                 onClick={toggleTheme}
                 className="p-2 rounded-full text-muted-foreground hover:text-foreground transition-colors"
+                title="تبديل الثيم"
               >
                 <AnimatePresence mode="wait">
                   {theme === "dark" ? (
@@ -128,14 +142,13 @@ export default function Navbar() {
             className="fixed top-16 left-0 right-0 z-40 bg-background/95 backdrop-blur-xl border-b border-border md:hidden"
           >
             <div className="px-4 py-4 space-y-3">
-              {[
-                { label: "الرئيسية", id: "hero" },
-                { label: "الإحصائيات", id: "stats" },
-                { label: "المشاركون", id: "participants" },
-              ].map((item) => (
+              {navItems.map((item) => (
                 <button
-                  key={item.id}
-                  onClick={() => scrollToSection(item.id)}
+                  key={item.label}
+                  onClick={() => {
+                    item.action();
+                    setMobileMenuOpen(false);
+                  }}
                   className="block w-full text-right py-2 px-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
                   {item.label}

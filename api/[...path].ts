@@ -1,13 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { handle } from "@hono/node-server/vercel";
+import { put } from "@vercel/blob";
 import { eq } from "drizzle-orm";
-import { participants, missedRecords } from "../db/schema.js";
+import { participants, missedRecords, moneyFlow } from "../db/schema.js";
 import app from "../server/boot.js";
 import { createAdminToken, isAuthorizedRequest, verifyAdminPassword } from "../server/lib/auth.js";
+import { ensureActiveCycle, FLOW_TYPES } from "../server/lib/funds.js";
 import { getDb } from "../server/queries/connection.js";
 
 const honoHandler = handle(app);
-const MAX_JSON_BYTES = 3 * 1024 * 1024;
+const MAX_JSON_BYTES = 30 * 1024 * 1024;
 const LOGIN_WINDOW_MS = 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 5;
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -90,6 +92,23 @@ function getParticipantPayload(body: unknown) {
   };
 }
 
+function getUploadPayload(body: unknown) {
+  if (!body || typeof body !== "object") return null;
+  const input = body as Record<string, unknown>;
+  const dataUrl = typeof input.dataUrl === "string" ? input.dataUrl : "";
+  const fileName = typeof input.fileName === "string" ? input.fileName : "upload";
+  const mimeType = typeof input.mimeType === "string" ? input.mimeType : "application/octet-stream";
+  const type = mimeType.startsWith("video/") ? "video" : mimeType.startsWith("image/") ? "image" : null;
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match || !type) return null;
+  return {
+    data: Buffer.from(match[2], "base64"),
+    fileName: fileName.replace(/[^\w.\-\u0600-\u06ff]+/g, "-"),
+    mimeType,
+    type,
+  };
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.method === "POST" && req.url?.startsWith("/api/admin/login")) {
     if (isRateLimited(req)) {
@@ -136,6 +155,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           .insert(participants)
           .values(payload)
           .returning();
+        if (payload.paidAmount > 0) {
+          const cycle = await ensureActiveCycle();
+          await db.insert(moneyFlow).values({
+            cycleId: cycle.id,
+            participantId: created.id,
+            type: FLOW_TYPES.CONTRIBUTION_IN,
+            amount: payload.paidAmount,
+            title: "دفع مشارك",
+            description: "قيمة مدفوعة عند إضافة مشارك",
+          });
+        }
         sendJson(res, 200, { success: true, participant: created });
         return;
       }
@@ -148,7 +178,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           return;
         }
 
+        const existing = await db.query.participants.findFirst({
+          where: eq(participants.id, id),
+        });
         await db.update(participants).set(payload).where(eq(participants.id, id));
+        const paidDelta = payload.paidAmount - (existing?.paidAmount ?? 0);
+        if (paidDelta !== 0) {
+          const cycle = await ensureActiveCycle();
+          await db.insert(moneyFlow).values({
+            cycleId: cycle.id,
+            participantId: id,
+            type: paidDelta > 0 ? FLOW_TYPES.CONTRIBUTION_IN : FLOW_TYPES.ADJUSTMENT_OUT,
+            amount: Math.abs(paidDelta),
+            title: paidDelta > 0 ? "زيادة مدفوعات مشارك" : "تعديل مدفوعات مشارك",
+            description: "تعديل من لوحة التحكم",
+          });
+        }
         sendJson(res, 200, { success: true });
         return;
       }
@@ -173,6 +218,44 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: false,
         error: error instanceof SyntaxError ? "Invalid JSON" : "Server error",
       });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url?.startsWith("/api/admin/uploads")) {
+    if (!isAuthorizedRequest(req)) {
+      sendJson(res, 401, { success: false, error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const payload = getUploadPayload(await readJson(req));
+      if (!payload) {
+        sendJson(res, 400, { success: false, error: "Invalid upload" });
+        return;
+      }
+
+      const ext = payload.fileName.includes(".") ? "" : payload.type === "image" ? ".png" : ".mp4";
+      const pathname = `donations/${Date.now()}-${payload.fileName}${ext}`;
+      const blob = await put(pathname, payload.data, {
+        access: "public",
+        contentType: payload.mimeType,
+      });
+
+      sendJson(res, 200, {
+        success: true,
+        media: {
+          url: blob.url,
+          pathname: blob.pathname,
+          type: payload.type,
+          mimeType: payload.mimeType,
+          fileName: payload.fileName,
+          size: payload.data.byteLength,
+        },
+      });
+    } catch (error) {
+      console.error(error);
+      sendJson(res, 500, { success: false, error: "Upload failed" });
     }
     return;
   }

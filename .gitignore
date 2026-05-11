@@ -45,3 +45,5 @@ coverage/
 
 # Temporary agent/test files
 tmp-*
+
+.env*.local

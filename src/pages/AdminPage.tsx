@@ -105,6 +105,7 @@ export default function AdminPage() {
   const [donationStep, setDonationStep] = useState(1);
   const [donationForm, setDonationForm] = useState<DonationFormData>(emptyDonation);
   const [uploading, setUploading] = useState(false);
+  const [participantImageUploading, setParticipantImageUploading] = useState(false);
   const [confirmCloseCycle, setConfirmCloseCycle] = useState(false);
 
   const participantsQuery = trpc.participant.list.useQuery(undefined, { enabled: isAdmin });
@@ -393,6 +394,43 @@ export default function AdminPage() {
       toast.error("تعذر رفع الملفات. تأكد من إعداد Vercel Blob.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function uploadParticipantImage(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("اختر ملف صورة فقط");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("حجم صورة المشارك يجب أن يكون أقل من 5MB");
+      return;
+    }
+
+    setParticipantImageUploading(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const response = await fetch("/api/admin/uploads", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${getAdminToken()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          dataUrl,
+          fileName: file.name,
+          mimeType: file.type,
+        }),
+      });
+      const data = (await response.json()) as { success: boolean; media?: MediaDraft; error?: string };
+      if (!response.ok || !data.success || !data.media) throw new Error(data.error || "Upload failed");
+      setParticipantForm((current) => ({ ...current, image: data.media?.url ?? "" }));
+      toast.success("تم رفع صورة المشارك");
+    } catch {
+      toast.error("تعذر رفع صورة المشارك. تأكد من إعداد Vercel Blob.");
+    } finally {
+      setParticipantImageUploading(false);
     }
   }
 
@@ -711,7 +749,42 @@ export default function AdminPage() {
           <Modal onClose={() => setParticipantOpen(false)} title={participantForm.id ? "تعديل مشارك" : "إضافة مشارك"}>
             <form onSubmit={saveParticipant} className="space-y-4">
               <TextInput label="الاسم" value={participantForm.name} onChange={(name) => setParticipantForm({ ...participantForm, name })} />
-              <TextInput label="رابط الصورة" value={participantForm.image} onChange={(image) => setParticipantForm({ ...participantForm, image })} />
+              <div className="rounded-2xl bg-white/5 p-4">
+                <span className="mb-3 block text-sm text-muted-foreground">صورة المشارك</span>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="h-20 w-20 overflow-hidden rounded-full border border-border/50 bg-muted/30">
+                    {participantForm.image ? (
+                      <img src={participantForm.image} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center">
+                        <User className="h-7 w-7 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-100 transition hover:bg-amber-500/15">
+                      <Upload className="h-4 w-4" />
+                      {participantImageUploading ? "جاري رفع الصورة..." : "رفع صورة من الجهاز"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={participantImageUploading}
+                        className="sr-only"
+                        onChange={(event) => uploadParticipantImage(event.target.files?.[0])}
+                      />
+                    </label>
+                    {participantForm.image && (
+                      <button
+                        type="button"
+                        onClick={() => setParticipantForm((current) => ({ ...current, image: "" }))}
+                        className="w-full rounded-xl bg-red-500/10 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-500/15"
+                      >
+                        حذف الصورة
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <button disabled={participantSaving} className="w-full rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] flex items-center justify-center gap-2">
                 <Save className="w-4 h-4" />
                 {participantSaving ? "جاري الحفظ..." : "حفظ"}

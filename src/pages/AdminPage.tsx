@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   AlertCircle,
@@ -112,6 +112,18 @@ export default function AdminPage() {
   const donationsQuery = trpc.admin.listDonations.useQuery(undefined, { enabled: isAdmin });
   const fundSummaryQuery = trpc.admin.fundSummary.useQuery(undefined, { enabled: isAdmin });
   const ledgerQuery = trpc.moneyFlow.adminLedger.useQuery(undefined, { enabled: isAdmin });
+  const adminAuthError = [
+    participantsQuery.error,
+    donationsQuery.error,
+    fundSummaryQuery.error,
+    ledgerQuery.error,
+  ].some((error) => error?.data?.code === "UNAUTHORIZED");
+
+  useEffect(() => {
+    if (!adminAuthError) return;
+    logout();
+    toast.error("انتهت صلاحية الجلسة. سجل الدخول مرة تانية.");
+  }, [adminAuthError, logout]);
 
   const createDonation = trpc.admin.createDonation.useMutation({
     onSuccess: (result) => {
@@ -457,6 +469,27 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {participantsQuery.isLoading && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                        جاري تحميل المشاركين...
+                      </td>
+                    </tr>
+                  )}
+                  {participantsQuery.isError && !adminAuthError && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-red-300">
+                        تعذر تحميل المشاركين
+                      </td>
+                    </tr>
+                  )}
+                  {!participantsQuery.isLoading && !participantsQuery.isError && !participantsQuery.data?.length && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                        لا يوجد مشاركون حالياً
+                      </td>
+                    </tr>
+                  )}
                   {participantsQuery.data?.map((participant) => (
                     <tr key={participant.id} className="border-b border-border/20">
                       <td className="px-4 py-3">

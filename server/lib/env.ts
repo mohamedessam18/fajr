@@ -11,6 +11,7 @@ function required(name: string): string {
 export const env = {
   appId: process.env.APP_ID ?? "",
   appSecret: required("APP_SECRET"),
+  adminPassword: required("ADMIN_PASSWORD"),
   isProduction: process.env.NODE_ENV === "production",
   databaseUrl: required("DATABASE_URL"),
 };

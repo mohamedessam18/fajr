@@ -3,11 +3,14 @@ import { handle } from "@hono/node-server/vercel";
 import { eq } from "drizzle-orm";
 import { participants, missedRecords } from "../db/schema.js";
 import app from "../server/boot.js";
+import { createAdminToken, isAuthorizedRequest, verifyAdminPassword } from "../server/lib/auth.js";
 import { getDb } from "../server/queries/connection.js";
 
 const honoHandler = handle(app);
-const ADMIN_PASSWORD = "sahseh2025";
-const ADMIN_TOKEN = "admin_sahseh_2025_token";
+const MAX_JSON_BYTES = 3 * 1024 * 1024;
+const LOGIN_WINDOW_MS = 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 5;
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -15,6 +18,10 @@ function readJson(req: IncomingMessage): Promise<unknown> {
     req.setEncoding("utf8");
     req.on("data", (chunk) => {
       body += chunk;
+      if (Buffer.byteLength(body) > MAX_JSON_BYTES) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+      }
     });
     req.on("end", () => {
       try {
@@ -35,14 +42,26 @@ function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
   res.end(body);
 }
 
-function isAuthorized(req: IncomingMessage) {
-  const header = req.headers.authorization;
-  return header === `Bearer ${ADMIN_TOKEN}`;
-}
-
 function getParticipantId(url: string | undefined) {
   const match = url?.match(/^\/api\/admin\/participants\/(\d+)(?:\?|$)/);
   return match ? Number(match[1]) : null;
+}
+
+function clientKey(req: IncomingMessage) {
+  const forwarded = req.headers["x-forwarded-for"];
+  return Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+}
+
+function isRateLimited(req: IncomingMessage) {
+  const key = clientKey(req);
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return false;
+  }
+  current.count += 1;
+  return current.count > LOGIN_MAX_ATTEMPTS;
 }
 
 function normalizeImage(input: unknown) {
@@ -73,6 +92,11 @@ function getParticipantPayload(body: unknown) {
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.method === "POST" && req.url?.startsWith("/api/admin/login")) {
+    if (isRateLimited(req)) {
+      sendJson(res, 429, { success: false, token: null });
+      return;
+    }
+
     try {
       const body = await readJson(req);
       const password =
@@ -80,8 +104,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ? String(body.password)
           : "";
 
-      if (password === ADMIN_PASSWORD) {
-        sendJson(res, 200, { success: true, token: "admin_sahseh_2025_token" });
+      if (verifyAdminPassword(password)) {
+        sendJson(res, 200, { success: true, token: createAdminToken() });
         return;
       }
 
@@ -93,7 +117,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   if (req.url?.startsWith("/api/admin/participants")) {
-    if (!isAuthorized(req)) {
+    if (!isAuthorizedRequest(req)) {
       sendJson(res, 401, { success: false, error: "Unauthorized" });
       return;
     }

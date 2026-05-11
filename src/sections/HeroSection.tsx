@@ -1,6 +1,5 @@
 import { motion } from "framer-motion";
 import { Sunrise, Heart, Users } from "lucide-react";
-import ThemedLogo from "@/components/ThemedLogo";
 
 export default function HeroSection() {
   const scrollToSection = (id: string) => {
@@ -52,13 +51,13 @@ export default function HeroSection() {
           transition={{ duration: 1, ease: "easeOut" }}
           className="mb-8"
         >
-          <motion.div
-            className="mx-auto w-32 h-32 md:w-48 md:h-48 drop-shadow-2xl"
+          <motion.img
+            src="/assets/logo.png"
+            alt="صحصح للفجر"
+            className="w-32 h-32 md:w-48 md:h-48 mx-auto object-contain drop-shadow-2xl"
             animate={{ y: [0, -10, 0] }}
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <ThemedLogo className="h-full w-full" />
-          </motion.div>
+          />
         </motion.div>
 
         <motion.h1

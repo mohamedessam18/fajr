@@ -1,29 +1,28 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware.js";
+import { adminQuery, createRouter, publicQuery } from "./middleware.js";
 import { getDb } from "./queries/connection.js";
 import { participants, missedRecords, settings } from "../db/schema.js";
 import { eq, sql } from "drizzle-orm";
 import { ensureSeed } from "./participantRouter.js";
-
-const ADMIN_PASSWORD = "sahseh2025";
+import { createAdminToken, verifyAdminPassword } from "./lib/auth.js";
 
 export const adminRouter = createRouter({
   login: publicQuery
     .input(z.object({ password: z.string() }))
     .mutation(({ input }) => {
-      if (input.password === ADMIN_PASSWORD) {
-        return { success: true, token: "admin_sahseh_2025_token" };
+      if (verifyAdminPassword(input.password)) {
+        return { success: true, token: createAdminToken() };
       }
       return { success: false, token: null };
     }),
 
-  listParticipants: publicQuery.query(async () => {
+  listParticipants: adminQuery.query(async () => {
     await ensureSeed();
     const db = getDb();
     return db.select().from(participants);
   }),
 
-  addParticipant: publicQuery
+  addParticipant: adminQuery
     .input(
       z.object({
         name: z.string().min(1),
@@ -45,7 +44,7 @@ export const adminRouter = createRouter({
       return { id: result[0].id, ...input };
     }),
 
-  updateParticipant: publicQuery
+  updateParticipant: adminQuery
     .input(
       z.object({
         id: z.number(),
@@ -73,7 +72,7 @@ export const adminRouter = createRouter({
       return { success: true };
     }),
 
-  deleteParticipant: publicQuery
+  deleteParticipant: adminQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -82,7 +81,7 @@ export const adminRouter = createRouter({
       return { success: true };
     }),
 
-  addMissedRecord: publicQuery
+  addMissedRecord: adminQuery
     .input(
       z.object({
         participantId: z.number(),
@@ -113,7 +112,7 @@ export const adminRouter = createRouter({
       return { success: true };
     }),
 
-  updateMissedRecord: publicQuery
+  updateMissedRecord: adminQuery
     .input(
       z.object({
         id: z.number(),
@@ -144,7 +143,7 @@ export const adminRouter = createRouter({
       return { success: true };
     }),
 
-  getFineAmount: publicQuery.query(async () => {
+  getFineAmount: adminQuery.query(async () => {
     const db = getDb();
     const setting = await db.query.settings.findFirst({
       where: eq(settings.key, "missed_fine_amount"),
@@ -152,7 +151,7 @@ export const adminRouter = createRouter({
     return { amount: setting ? parseInt(setting.value) : 10 };
   }),
 
-  updateFineAmount: publicQuery
+  updateFineAmount: adminQuery
     .input(z.object({ amount: z.number().min(1) }))
     .mutation(async ({ input }) => {
       const db = getDb();

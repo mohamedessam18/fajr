@@ -1,0 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 30 30% 98%;
+    --foreground: 220 40% 10%;
+    --card: 30 25% 99%;
+    --card-foreground: 220 40% 10%;
+    --popover: 30 25% 99%;
+    --popover-foreground: 220 40% 10%;
+    --primary: 45 90% 45%;
+    --primary-foreground: 220 40% 5%;
+    --secondary: 220 20% 95%;
+    --secondary-foreground: 220 40% 10%;
+    --muted: 220 15% 92%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 45 85% 55%;
+    --accent-foreground: 220 40% 5%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 45 90% 45%;
+    --radius: 0.625rem;
+    --gold: 45 90% 45%;
+    --gold-light: 45 90% 60%;
+    --gold-dark: 45 85% 35%;
+    --navy: 220 60% 15%;
+    --navy-light: 220 40% 25%;
+  }
+
+  .dark {
+    --background: 220 45% 5%;
+    --foreground: 45 30% 92%;
+    --card: 220 35% 8%;
+    --card-foreground: 45 30% 92%;
+    --popover: 220 35% 8%;
+    --popover-foreground: 45 30% 92%;
+    --primary: 45 85% 50%;
+    --primary-foreground: 220 50% 5%;
+    --secondary: 220 30% 15%;
+    --secondary-foreground: 45 30% 92%;
+    --muted: 220 25% 15%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 45 80% 50%;
+    --accent-foreground: 220 50% 5%;
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 25% 18%;
+    --input: 220 25% 18%;
+    --ring: 45 85% 50%;
+    --gold: 45 85% 50%;
+    --gold-light: 45 90% 65%;
+    --gold-dark: 45 75% 40%;
+    --navy: 220 50% 12%;
+    --navy-light: 220 35% 20%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Tajawal', sans-serif;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+  .glass-strong {
+    @apply bg-white/10 backdrop-blur-2xl border border-white/15;
+  }
+  .text-gradient {
+    @apply bg-gradient-to-r from-[hsl(45,90%,50%)] to-[hsl(35,85%,60%)] bg-clip-text text-transparent;
+  }
+  .glow-gold {
+    box-shadow: 0 0 20px rgba(234, 179, 8, 0.3), 0 0 60px rgba(234, 179, 8, 0.1);
+  }
+  .glow-gold-soft {
+    box-shadow: 0 0 30px rgba(234, 179, 8, 0.15), 0 0 80px rgba(234, 179, 8, 0.05);
+  }
+  .sunrise-gradient {
+    background: linear-gradient(135deg, #0a0e1a 0%, #0f1729 30%, #1a1f3a 50%, #0d1321 70%, #080c14 100%);
+  }
+  .gold-gradient {
+    background: linear-gradient(135deg, #d4a017 0%, #f0c040 50%, #d4a017 100%);
+  }
+  .card-hover {
+    @apply transition-all duration-300 hover:scale-[1.02] hover:shadow-lg;
+  }
+}

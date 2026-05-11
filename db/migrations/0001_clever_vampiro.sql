@@ -1,0 +1,1 @@
+ALTER TABLE "participants" ALTER COLUMN "image" SET DATA TYPE text;

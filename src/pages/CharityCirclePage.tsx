@@ -20,17 +20,17 @@ export default function CharityCirclePage() {
             <p className="mb-2 text-sm text-amber-300">دور الخير الشهري</p>
             <h1 className="mb-3 text-3xl font-extrabold text-gradient md:text-5xl">الجمعية الخيرية</h1>
             <p className="max-w-2xl text-muted-foreground">
-              كل شهر هجري يتجمع اشتراك الأعضاء، وعند اكتماله يسجل دخل واحد باسم صاحب الدور داخل سجل الفلوس.
+              كل شهر هجري يتجمع اشتراك الأعضاء الحاليين، وعند اكتماله يسجل دخل واحد باسم صاحب الدور داخل سجل الفلوس.
             </p>
           </div>
 
           {isLoading ? (
             <div className="glass-strong rounded-2xl p-8 text-center text-muted-foreground">جاري تحميل الجمعية...</div>
-          ) : data?.shortage ? (
+          ) : !active ? (
             <div className="glass-strong rounded-2xl p-10 text-center">
               <Users className="mx-auto mb-4 h-12 w-12 text-amber-300" />
-              <h2 className="mb-2 text-xl font-bold">الجمعية تحتاج 10 مشاركين</h2>
-              <p className="text-muted-foreground">المتبقي لإطلاق الشهر الحالي: {data.shortage} مشارك.</p>
+              <h2 className="mb-2 text-xl font-bold">لا يوجد مشاركون حالياً</h2>
+              <p className="text-muted-foreground">أضف المشاركين من لوحة التحكم لبدء الجمعية.</p>
             </div>
           ) : active ? (
             <>

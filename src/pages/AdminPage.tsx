@@ -723,14 +723,14 @@ export default function AdminPage() {
                 <div className="glass-strong rounded-2xl p-8 text-center text-muted-foreground">
                   جاري تحميل الجمعية الخيرية...
                 </div>
-              ) : charityQuery.data?.shortage ? (
+              ) : !charityActive ? (
                 <div className="glass-strong rounded-2xl p-8">
                   <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-200">
                     <Users className="h-6 w-6" />
                   </div>
-                  <h2 className="mb-2 text-xl font-bold">الجمعية تحتاج 10 مشاركين</h2>
+                  <h2 className="mb-2 text-xl font-bold">لا يوجد مشاركون حالياً</h2>
                   <p className="text-muted-foreground">
-                    المتبقي لإطلاق شهر الجمعية: {charityQuery.data.shortage} مشارك. أضف المشاركين أولاً من تبويب المشاركين.
+                    أضف المشاركين أولاً من تبويب المشاركين لبدء شهر الجمعية.
                   </p>
                 </div>
               ) : charityActive ? (
@@ -783,7 +783,7 @@ export default function AdminPage() {
                         <div>
                           <h2 className="font-bold">دفعات الشهر</h2>
                           <p className="text-sm text-muted-foreground">
-                            لا يتم إضافة أي دخل للرصيد إلا بعد اكتمال دفع العشرة.
+                            لا يتم إضافة أي دخل للرصيد إلا بعد اكتمال دفع كل المشتركين الحاليين.
                           </p>
                         </div>
                         <span

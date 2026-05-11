@@ -11,17 +11,15 @@ import { getCurrentHijriParts } from "./lib/hijri.js";
 import { ensureSeed } from "./participantRouter.js";
 import { getDb } from "./queries/connection.js";
 
-const MEMBER_COUNT = 10;
 const CONTRIBUTION_AMOUNT = 50;
-const EXPECTED_AMOUNT = MEMBER_COUNT * CONTRIBUTION_AMOUNT;
 
 async function getCircleParticipants() {
   const db = getDb();
-  return db.select().from(participants).orderBy(asc(participants.id)).limit(MEMBER_COUNT);
+  return db.select().from(participants).orderBy(asc(participants.id));
 }
 
 async function getRotationParticipantId(circleParticipants: Awaited<ReturnType<typeof getCircleParticipants>>) {
-  if (circleParticipants.length < MEMBER_COUNT) return null;
+  if (!circleParticipants.length) return null;
   const db = getDb();
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)` })
@@ -29,6 +27,34 @@ async function getRotationParticipantId(circleParticipants: Awaited<ReturnType<t
     .where(eq(charityMonths.status, "closed"));
   const index = Number(count ?? 0) % circleParticipants.length;
   return circleParticipants[index]?.id ?? null;
+}
+
+async function syncOpenMonthParticipants(monthId: number) {
+  const db = getDb();
+  const circleParticipants = await getCircleParticipants();
+  const payments = await db
+    .select()
+    .from(charityMonthPayments)
+    .where(eq(charityMonthPayments.monthId, monthId));
+  const existingParticipantIds = new Set(payments.map((payment) => payment.participantId));
+  const missingParticipants = circleParticipants.filter((participant) => !existingParticipantIds.has(participant.id));
+
+  if (missingParticipants.length) {
+    await db.insert(charityMonthPayments).values(
+      missingParticipants.map((participant) => ({
+        monthId,
+        participantId: participant.id,
+        amount: CONTRIBUTION_AMOUNT,
+        paid: false,
+      })),
+    );
+  }
+
+  const expectedAmount = circleParticipants.length * CONTRIBUTION_AMOUNT;
+  await db
+    .update(charityMonths)
+    .set({ expectedAmount })
+    .where(eq(charityMonths.id, monthId));
 }
 
 async function ensureActiveCharityMonth() {
@@ -39,7 +65,10 @@ async function ensureActiveCharityMonth() {
     where: eq(charityMonths.status, "open"),
     orderBy: desc(charityMonths.createdAt),
   });
-  if (openMonth) return openMonth;
+  if (openMonth) {
+    await syncOpenMonthParticipants(openMonth.id);
+    return openMonth;
+  }
 
   const hijri = getCurrentHijriParts();
   const currentMonth = await db.query.charityMonths.findFirst({
@@ -48,7 +77,7 @@ async function ensureActiveCharityMonth() {
   if (currentMonth) return currentMonth;
 
   const circleParticipants = await getCircleParticipants();
-  if (circleParticipants.length < MEMBER_COUNT) return null;
+  if (!circleParticipants.length) return null;
 
   const [created] = await db
     .insert(charityMonths)
@@ -58,7 +87,7 @@ async function ensureActiveCharityMonth() {
       hijriMonthName: hijri.monthName,
       rotationParticipantId: await getRotationParticipantId(circleParticipants),
       contributionAmount: CONTRIBUTION_AMOUNT,
-      expectedAmount: EXPECTED_AMOUNT,
+      expectedAmount: circleParticipants.length * CONTRIBUTION_AMOUNT,
       status: "open",
     })
     .returning();
@@ -114,10 +143,9 @@ async function getCharityPayload() {
   });
 
   return {
-    shortage: Math.max(MEMBER_COUNT - circleParticipants.length, 0),
-    memberCount: MEMBER_COUNT,
+    memberCount: circleParticipants.length,
     contributionAmount: CONTRIBUTION_AMOUNT,
-    expectedAmount: EXPECTED_AMOUNT,
+    expectedAmount: circleParticipants.length * CONTRIBUTION_AMOUNT,
     active,
     history,
   };
@@ -127,7 +155,7 @@ async function closeMonthIfComplete(monthId: number) {
   const db = getDb();
   const month = await getMonthDetails(monthId);
   if (!month || month.status !== "open" || month.moneyFlowId) return false;
-  if (month.payments.length < MEMBER_COUNT || month.payments.some((payment) => !payment.paid)) return false;
+  if (!month.payments.length || month.payments.some((payment) => !payment.paid)) return false;
 
   const cycle = await ensureActiveCycle();
   const ownerName = month.rotationParticipant?.name ?? "صاحب الدور";

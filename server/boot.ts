@@ -4,17 +4,22 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./router.js";
 import { createContext } from "./context.js";
 import { env } from "./lib/env.js";
+import { closeDb } from "./queries/connection.js";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
 app.use("*", async (c, next) => {
-  await next();
-  c.header("x-content-type-options", "nosniff");
-  c.header("referrer-policy", "strict-origin-when-cross-origin");
-  c.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
-  c.header("x-frame-options", "DENY");
-  if (env.isProduction) {
-    c.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+  try {
+    await next();
+    c.header("x-content-type-options", "nosniff");
+    c.header("referrer-policy", "strict-origin-when-cross-origin");
+    c.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
+    c.header("x-frame-options", "DENY");
+    if (env.isProduction) {
+      c.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+    }
+  } finally {
+    await closeDb();
   }
 });
 

@@ -13,6 +13,9 @@ export function getDb() {
   if (!instance) {
     client = postgres(env.databaseUrl, {
       prepare: false,
+      max: 1,
+      idle_timeout: 10,
+      connect_timeout: 10,
     });
     instance = drizzle(client, {
       schema: fullSchema,

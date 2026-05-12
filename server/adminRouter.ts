@@ -273,17 +273,18 @@ export const adminRouter = createRouter({
     .input(
       z.object({
         participantId: z.number(),
-        date: z.string(),
+        date: z.string().optional(),
         amount: z.number().default(10),
         paid: z.boolean().default(false),
       })
     )
     .mutation(async ({ input }) => {
       const db = getDb();
-      await db.insert(missedRecords).values(input);
+      const date = input.date || new Date().toISOString().slice(0, 10);
+      await db.insert(missedRecords).values({ ...input, date });
 
       const updates: Record<string, unknown> = {
-        missedCount: db.$count(missedRecords, eq(missedRecords.participantId, input.participantId)),
+        missedCount: sql`${participants.missedCount} + 1`,
       };
 
       if (input.paid) {
@@ -295,7 +296,7 @@ export const adminRouter = createRouter({
           type: FLOW_TYPES.CONTRIBUTION_IN,
           amount: input.amount,
           title: "دفع غرامة",
-          description: input.date,
+          description: date,
         });
       } else {
         updates.unpaidAmount = sql`${participants.unpaidAmount} + ${input.amount}`;

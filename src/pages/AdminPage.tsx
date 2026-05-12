@@ -101,7 +101,6 @@ export default function AdminPage() {
   const [participantForm, setParticipantForm] = useState<ParticipantFormData>(emptyParticipant);
   const [participantOpen, setParticipantOpen] = useState(false);
   const [participantSaving, setParticipantSaving] = useState(false);
-  const [absenceDate, setAbsenceDate] = useState(new Date().toISOString().slice(0, 10));
   const [absencePaid, setAbsencePaid] = useState(true);
   const [donationOpen, setDonationOpen] = useState(false);
   const [donationStep, setDonationStep] = useState(1);
@@ -187,7 +186,6 @@ export default function AdminPage() {
     onSuccess: () => {
       toast.success(absencePaid ? "تم تسجيل الغياب كمدفوع" : "تم تسجيل الغياب كمستحق");
       refreshAll();
-      setAbsenceDate(new Date().toISOString().slice(0, 10));
     },
     onError: () => toast.error("تعذر إضافة الغياب"),
   });
@@ -293,7 +291,6 @@ export default function AdminPage() {
       name: participant.name,
       image: participant.image || "",
     });
-    setAbsenceDate(new Date().toISOString().slice(0, 10));
     setAbsencePaid(true);
     setParticipantOpen(true);
   }
@@ -364,7 +361,6 @@ export default function AdminPage() {
     if (!participantForm.id) return;
     addMissedRecord.mutate({
       participantId: participantForm.id,
-      date: absenceDate,
       amount: fineAmount,
       paid: absencePaid,
     });
@@ -1014,8 +1010,7 @@ export default function AdminPage() {
                     <h3 className="font-bold">إضافة يوم غياب</h3>
                     <p className="text-xs text-muted-foreground">قيمة الغياب الحالية: {formatMoney(fineAmount)}</p>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                    <TextInput label="تاريخ الغياب" type="date" value={absenceDate} onChange={setAbsenceDate} />
+                  <div className="grid gap-3">
                     <div>
                       <span className="mb-1.5 block text-sm text-muted-foreground">حالة الدفع</span>
                       <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border/50">
@@ -1039,7 +1034,7 @@ export default function AdminPage() {
                   <button
                     type="button"
                     onClick={addParticipantAbsence}
-                    disabled={addMissedRecord.isPending || !absenceDate}
+                    disabled={addMissedRecord.isPending}
                     className="mt-4 w-full rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] disabled:opacity-50"
                   >
                     {addMissedRecord.isPending ? "جاري إضافة الغياب..." : "إضافة الغياب"}

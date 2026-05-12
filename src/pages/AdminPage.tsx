@@ -103,6 +103,7 @@ export default function AdminPage() {
   const [participantOpen, setParticipantOpen] = useState(false);
   const [participantSaving, setParticipantSaving] = useState(false);
   const [absenceSaving, setAbsenceSaving] = useState(false);
+  const [payingRecordId, setPayingRecordId] = useState<number | null>(null);
   const [absencePaid, setAbsencePaid] = useState(true);
   const [donationOpen, setDonationOpen] = useState(false);
   const [donationStep, setDonationStep] = useState(1);
@@ -182,14 +183,6 @@ export default function AdminPage() {
       refreshAll();
     },
     onError: () => toast.error("تعذر تحديث المشارك"),
-  });
-
-  const updateMissedRecord = trpc.admin.updateMissedRecord.useMutation({
-    onSuccess: () => {
-      toast.success("تم تسديد الغياب");
-      refreshAll();
-    },
-    onError: () => toast.error("تعذر تسديد الغياب"),
   });
 
   const setCharityPayment = trpc.charity.setPayment.useMutation({
@@ -382,8 +375,30 @@ export default function AdminPage() {
     }
   }
 
-  function payMissedRecord(id: number) {
-    updateMissedRecord.mutate({ id, paid: true });
+  async function payMissedRecord(id: number) {
+    setPayingRecordId(id);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), ABSENCE_TIMEOUT_MS);
+    try {
+      const response = await fetch(`/api/admin/missed-records/${id}`, {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${getAdminToken()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ paid: true }),
+        signal: controller.signal,
+      });
+      const data = (await response.json()) as { success: boolean; error?: string };
+      if (!response.ok || !data.success) throw new Error(data.error || "Save failed");
+      toast.success("تم تسديد الغياب");
+      refreshAll();
+    } catch (error) {
+      toast.error(error instanceof DOMException && error.name === "AbortError" ? "انتهت مهلة تسديد الغياب" : "تعذر تسديد الغياب");
+    } finally {
+      window.clearTimeout(timeout);
+      setPayingRecordId(null);
+    }
   }
 
   async function deleteParticipant(id: number, name: string) {
@@ -1079,10 +1094,10 @@ export default function AdminPage() {
                               <button
                                 type="button"
                                 onClick={() => payMissedRecord(record.id)}
-                                disabled={updateMissedRecord.isPending}
+                                disabled={payingRecordId === record.id}
                                 className="rounded-lg bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
                               >
-                                تسديد
+                                {payingRecordId === record.id ? "جاري..." : "تسديد"}
                               </button>
                             )}
                           </div>

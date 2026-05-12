@@ -49,6 +49,11 @@ function getParticipantId(url: string | undefined) {
   return match ? Number(match[1]) : null;
 }
 
+function getMissedRecordId(url: string | undefined) {
+  const match = url?.match(/^\/api\/admin\/missed-records\/(\d+)(?:\?|$)/);
+  return match ? Number(match[1]) : null;
+}
+
 function clientKey(req: IncomingMessage) {
   const forwarded = req.headers["x-forwarded-for"];
   return Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
@@ -145,20 +150,70 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  if (req.method === "POST" && req.url?.startsWith("/api/admin/missed-records")) {
+  if (
+    (req.method === "POST" && req.url === "/api/admin/missed-records") ||
+    (req.method === "PATCH" && req.url?.startsWith("/api/admin/missed-records/"))
+  ) {
     if (!isAuthorizedRequest(req)) {
       sendJson(res, 401, { success: false, error: "Unauthorized" });
       return;
     }
 
     try {
+      const db = getDb();
+      if (req.method === "PATCH") {
+        const id = getMissedRecordId(req.url);
+        if (!id) {
+          sendJson(res, 400, { success: false, error: "Invalid missed record" });
+          return;
+        }
+        const body = await readJson(req);
+        const paid = Boolean(body && typeof body === "object" && "paid" in body ? (body as Record<string, unknown>).paid : true);
+        if (!paid) {
+          sendJson(res, 400, { success: false, error: "Only paid=true is supported" });
+          return;
+        }
+        const record = await db.query.missedRecords.findFirst({
+          where: eq(missedRecords.id, id),
+        });
+        if (!record) {
+          sendJson(res, 404, { success: false, error: "Missed record not found" });
+          return;
+        }
+        if (record.paid) {
+          sendJson(res, 200, { success: true, record });
+          return;
+        }
+
+        await db.update(missedRecords).set({ paid: true }).where(eq(missedRecords.id, id));
+        await db
+          .update(participants)
+          .set({
+            paidAmount: sql`${participants.paidAmount} + ${record.amount}`,
+            unpaidAmount: sql`greatest(${participants.unpaidAmount} - ${record.amount}, 0)`,
+          })
+          .where(eq(participants.id, record.participantId));
+
+        const cycle = await ensureActiveCycle();
+        await db.insert(moneyFlow).values({
+          cycleId: cycle.id,
+          participantId: record.participantId,
+          type: FLOW_TYPES.CONTRIBUTION_IN,
+          amount: record.amount,
+          title: "دفع غرامة",
+          description: record.date,
+        });
+
+        sendJson(res, 200, { success: true, record: { ...record, paid: true } });
+        return;
+      }
+
       const payload = getMissedRecordPayload(await readJson(req));
       if (!payload) {
         sendJson(res, 400, { success: false, error: "Invalid missed record" });
         return;
       }
 
-      const db = getDb();
       const existing = await db.query.participants.findFirst({
         where: eq(participants.id, payload.participantId),
       });

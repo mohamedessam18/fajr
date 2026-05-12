@@ -1,12 +1,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { handle } from "@hono/node-server/vercel";
 import { put } from "@vercel/blob";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { participants, missedRecords, moneyFlow } from "../db/schema.js";
 import app from "../server/boot.js";
 import { createAdminToken, isAuthorizedRequest, verifyAdminPassword } from "../server/lib/auth.js";
 import { ensureActiveCycle, FLOW_TYPES } from "../server/lib/funds.js";
-import { getDb } from "../server/queries/connection.js";
+import { closeDb, getDb } from "../server/queries/connection.js";
 
 const honoHandler = handle(app);
 const MAX_JSON_BYTES = 30 * 1024 * 1024;
@@ -109,6 +109,16 @@ function getUploadPayload(body: unknown) {
   };
 }
 
+function getMissedRecordPayload(body: unknown) {
+  if (!body || typeof body !== "object") return null;
+  const input = body as Record<string, unknown>;
+  const participantId = Number(input.participantId);
+  const amount = Number(input.amount) || 10;
+  const paid = Boolean(input.paid);
+  if (!Number.isInteger(participantId) || participantId <= 0 || amount <= 0) return null;
+  return { participantId, amount, paid };
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.method === "POST" && req.url?.startsWith("/api/admin/login")) {
     if (isRateLimited(req)) {
@@ -131,6 +141,77 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       sendJson(res, 200, { success: false, token: null });
     } catch {
       sendJson(res, 400, { success: false, token: null });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url?.startsWith("/api/admin/missed-records")) {
+    if (!isAuthorizedRequest(req)) {
+      sendJson(res, 401, { success: false, error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const payload = getMissedRecordPayload(await readJson(req));
+      if (!payload) {
+        sendJson(res, 400, { success: false, error: "Invalid missed record" });
+        return;
+      }
+
+      const db = getDb();
+      const existing = await db.query.participants.findFirst({
+        where: eq(participants.id, payload.participantId),
+      });
+      if (!existing) {
+        sendJson(res, 404, { success: false, error: "Participant not found" });
+        return;
+      }
+
+      const date = new Date().toISOString().slice(0, 10);
+      const [record] = await db
+        .insert(missedRecords)
+        .values({
+          participantId: payload.participantId,
+          date,
+          amount: payload.amount,
+          paid: payload.paid,
+        })
+        .returning();
+
+      await db
+        .update(participants)
+        .set({
+          missedCount: sql`${participants.missedCount} + 1`,
+          paidAmount: payload.paid
+            ? sql`${participants.paidAmount} + ${payload.amount}`
+            : sql`${participants.paidAmount}`,
+          unpaidAmount: payload.paid
+            ? sql`${participants.unpaidAmount}`
+            : sql`${participants.unpaidAmount} + ${payload.amount}`,
+        })
+        .where(eq(participants.id, payload.participantId));
+
+      if (payload.paid) {
+        const cycle = await ensureActiveCycle();
+        await db.insert(moneyFlow).values({
+          cycleId: cycle.id,
+          participantId: payload.participantId,
+          type: FLOW_TYPES.CONTRIBUTION_IN,
+          amount: payload.amount,
+          title: "دفع غرامة",
+          description: date,
+        });
+      }
+
+      sendJson(res, 200, { success: true, record });
+    } catch (error) {
+      console.error(error);
+      sendJson(res, error instanceof SyntaxError ? 400 : 500, {
+        success: false,
+        error: error instanceof SyntaxError ? "Invalid JSON" : "Server error",
+      });
+    } finally {
+      await closeDb();
     }
     return;
   }
@@ -218,6 +299,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: false,
         error: error instanceof SyntaxError ? "Invalid JSON" : "Server error",
       });
+    } finally {
+      await closeDb();
     }
     return;
   }
@@ -256,6 +339,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     } catch (error) {
       console.error(error);
       sendJson(res, 500, { success: false, error: "Upload failed" });
+    } finally {
+      await closeDb();
     }
     return;
   }

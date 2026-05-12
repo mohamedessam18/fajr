@@ -76,6 +76,7 @@ const emptyDonation: DonationFormData = {
 };
 
 const SAVE_TIMEOUT_MS = 20000;
+const ABSENCE_TIMEOUT_MS = 15000;
 
 function getAdminToken() {
   return localStorage.getItem("sahseh_admin_token") ?? "";
@@ -101,6 +102,7 @@ export default function AdminPage() {
   const [participantForm, setParticipantForm] = useState<ParticipantFormData>(emptyParticipant);
   const [participantOpen, setParticipantOpen] = useState(false);
   const [participantSaving, setParticipantSaving] = useState(false);
+  const [absenceSaving, setAbsenceSaving] = useState(false);
   const [absencePaid, setAbsencePaid] = useState(true);
   const [donationOpen, setDonationOpen] = useState(false);
   const [donationStep, setDonationStep] = useState(1);
@@ -180,14 +182,6 @@ export default function AdminPage() {
       refreshAll();
     },
     onError: () => toast.error("تعذر تحديث المشارك"),
-  });
-
-  const addMissedRecord = trpc.admin.addMissedRecord.useMutation({
-    onSuccess: () => {
-      toast.success(absencePaid ? "تم تسجيل الغياب كمدفوع" : "تم تسجيل الغياب كمستحق");
-      refreshAll();
-    },
-    onError: () => toast.error("تعذر إضافة الغياب"),
   });
 
   const updateMissedRecord = trpc.admin.updateMissedRecord.useMutation({
@@ -357,13 +351,35 @@ export default function AdminPage() {
     }
   }
 
-  function addParticipantAbsence() {
+  async function addParticipantAbsence() {
     if (!participantForm.id) return;
-    addMissedRecord.mutate({
-      participantId: participantForm.id,
-      amount: fineAmount,
-      paid: absencePaid,
-    });
+    setAbsenceSaving(true);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), ABSENCE_TIMEOUT_MS);
+    try {
+      const response = await fetch("/api/admin/missed-records", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${getAdminToken()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          participantId: participantForm.id,
+          amount: fineAmount,
+          paid: absencePaid,
+        }),
+        signal: controller.signal,
+      });
+      const data = (await response.json()) as { success: boolean; error?: string };
+      if (!response.ok || !data.success) throw new Error(data.error || "Save failed");
+      toast.success(absencePaid ? "تم تسجيل الغياب كمدفوع" : "تم تسجيل الغياب كمستحق");
+      refreshAll();
+    } catch (error) {
+      toast.error(error instanceof DOMException && error.name === "AbortError" ? "انتهت مهلة إضافة الغياب" : "تعذر إضافة الغياب");
+    } finally {
+      window.clearTimeout(timeout);
+      setAbsenceSaving(false);
+    }
   }
 
   function payMissedRecord(id: number) {
@@ -1034,10 +1050,10 @@ export default function AdminPage() {
                   <button
                     type="button"
                     onClick={addParticipantAbsence}
-                    disabled={addMissedRecord.isPending}
+                    disabled={absenceSaving}
                     className="mt-4 w-full rounded-xl gold-gradient py-3 font-bold text-[#0a0e1a] disabled:opacity-50"
                   >
-                    {addMissedRecord.isPending ? "جاري إضافة الغياب..." : "إضافة الغياب"}
+                    {absenceSaving ? "جاري إضافة الغياب..." : "إضافة الغياب"}
                   </button>
                 </div>
 

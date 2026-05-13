@@ -167,24 +167,6 @@ export default function AdminPage() {
     },
   });
 
-  const addParticipant = trpc.admin.addParticipant.useMutation({
-    onSuccess: () => {
-      toast.success("تم إضافة المشارك");
-      setParticipantOpen(false);
-      setParticipantForm(emptyParticipant);
-      refreshAll();
-    },
-    onError: () => toast.error("تعذر إضافة المشارك"),
-  });
-
-  const updateParticipant = trpc.admin.updateParticipant.useMutation({
-    onSuccess: () => {
-      toast.success("تم تحديث بيانات المشارك");
-      refreshAll();
-    },
-    onError: () => toast.error("تعذر تحديث المشارك"),
-  });
-
   const setCharityPayment = trpc.charity.setPayment.useMutation({
     onSuccess: (result) => {
       if (!result.success) {
@@ -283,7 +265,6 @@ export default function AdminPage() {
   }
 
   async function saveParticipant(event: React.FormEvent) {
-    return saveParticipantBasics(event);
     event.preventDefault();
     if (!participantForm.name.trim()) {
       toast.error("اسم المشارك مطلوب");
@@ -301,7 +282,10 @@ export default function AdminPage() {
             authorization: `Bearer ${getAdminToken()}`,
             "content-type": "application/json",
           },
-          body: JSON.stringify(participantForm),
+          body: JSON.stringify({
+            name: participantForm.name.trim(),
+            image: participantForm.image.trim(),
+          }),
           signal: controller.signal,
         },
       );
@@ -310,36 +294,10 @@ export default function AdminPage() {
       setParticipantOpen(false);
       setParticipantForm(emptyParticipant);
       refreshAll();
-    } catch {
-      toast.error("تعذر حفظ المشارك");
+    } catch (error) {
+      toast.error(error instanceof DOMException && error.name === "AbortError" ? "انتهت مهلة حفظ المشارك" : "تعذر حفظ المشارك");
     } finally {
       window.clearTimeout(timeout);
-      setParticipantSaving(false);
-    }
-  }
-
-  async function saveParticipantBasics(event: React.FormEvent) {
-    event.preventDefault();
-    if (!participantForm.name.trim()) {
-      toast.error("اسم المشارك مطلوب");
-      return;
-    }
-
-    setParticipantSaving(true);
-    try {
-      if (participantForm.id) {
-        await updateParticipant.mutateAsync({
-          id: participantForm.id,
-          name: participantForm.name.trim(),
-          image: participantForm.image.trim(),
-        });
-      } else {
-        await addParticipant.mutateAsync({
-          name: participantForm.name.trim(),
-          image: participantForm.image.trim() || undefined,
-        });
-      }
-    } finally {
       setParticipantSaving(false);
     }
   }

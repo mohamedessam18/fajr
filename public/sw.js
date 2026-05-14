@@ -1,9 +1,12 @@
-const CACHE_NAME = "sahseh-pwa-v1";
+const CACHE_NAME = "sahseh-pwa-v2";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
+  "/apple-touch-icon.png",
   "/assets/logo.png",
   "/assets/logo-light.png",
+  "/icons/apple-touch-icon-152.png",
+  "/icons/apple-touch-icon-167.png",
   "/icons/pwa-192.png",
   "/icons/pwa-512.png",
 ];

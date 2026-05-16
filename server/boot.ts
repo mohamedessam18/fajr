@@ -8,13 +8,17 @@ import { closeDb } from "./queries/connection.js";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
+function setCorsHeaders(headers: Headers, origin?: string, requestHeaders?: string) {
+  headers.set("access-control-allow-origin", origin ?? "*");
+  headers.set("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  headers.set("access-control-allow-headers", requestHeaders ?? "authorization,content-type");
+  headers.set("access-control-max-age", "86400");
+  headers.set("vary", "Origin");
+}
+
 app.use("*", async (c, next) => {
   const requestHeaders = c.req.header("access-control-request-headers");
-  c.header("access-control-allow-origin", c.req.header("origin") ?? "*");
-  c.header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  c.header("access-control-allow-headers", requestHeaders ?? "authorization,content-type");
-  c.header("access-control-max-age", "86400");
-  c.header("vary", "Origin");
+  setCorsHeaders(c.res.headers, c.req.header("origin"), requestHeaders);
 
   try {
     if (c.req.method === "OPTIONS") {
@@ -35,12 +39,14 @@ app.use("*", async (c, next) => {
 });
 
 app.use("/api/trpc/*", async (c) => {
-  return fetchRequestHandler({
+  const response = await fetchRequestHandler({
     endpoint: "/api/trpc",
     req: c.req.raw,
     router: appRouter,
     createContext,
   });
+  setCorsHeaders(response.headers, c.req.header("origin"), c.req.header("access-control-request-headers"));
+  return response;
 });
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 

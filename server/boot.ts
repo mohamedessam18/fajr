@@ -9,7 +9,18 @@ import { closeDb } from "./queries/connection.js";
 const app = new Hono<{ Bindings: HttpBindings }>();
 
 app.use("*", async (c, next) => {
+  const requestHeaders = c.req.header("access-control-request-headers");
+  c.header("access-control-allow-origin", c.req.header("origin") ?? "*");
+  c.header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  c.header("access-control-allow-headers", requestHeaders ?? "authorization,content-type");
+  c.header("access-control-max-age", "86400");
+  c.header("vary", "Origin");
+
   try {
+    if (c.req.method === "OPTIONS") {
+      return c.body(null, 204);
+    }
+
     await next();
     c.header("x-content-type-options", "nosniff");
     c.header("referrer-policy", "strict-origin-when-cross-origin");

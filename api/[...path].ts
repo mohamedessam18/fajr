@@ -14,6 +14,13 @@ const LOGIN_WINDOW_MS = 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 5;
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
+function setCorsHeaders(res: ServerResponse) {
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader("access-control-allow-headers", "authorization,content-type");
+  res.setHeader("access-control-max-age", "86400");
+}
+
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -39,6 +46,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
   const body = JSON.stringify(payload);
   res.statusCode = statusCode;
+  setCorsHeaders(res);
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("content-length", Buffer.byteLength(body));
   res.end(body);
@@ -125,6 +133,13 @@ function getMissedRecordPayload(body: unknown) {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  if (req.method === "OPTIONS") {
+    setCorsHeaders(res);
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
   if (req.method === "POST" && req.url?.startsWith("/api/admin/login")) {
     if (isRateLimited(req)) {
       sendJson(res, 429, { success: false, token: null });
